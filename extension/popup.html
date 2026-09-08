@@ -73,6 +73,14 @@
   .item .t { font-weight: 600; }
   .item .m { color: var(--muted); font-size: 11px; }
   .item .warn { color: var(--stop); }
+  .tags { display: flex; gap: 5px; margin-top: 5px; }
+  .chip {
+    flex: 0 0 auto; padding: 1px 7px; font-size: 10.5px; line-height: 1.5;
+    border: 1px dashed var(--rule); border-radius: 100px;
+    background: transparent; color: var(--muted); cursor: pointer;
+  }
+  .chip.on { border-style: solid; border-color: var(--acc); color: var(--acc); }
+  .chip:hover { border-color: var(--acc); }
   .empty { padding: 18px 12px; text-align: center; color: var(--muted); font-size: 12px; }
   .tip {
     margin: 10px 0 0;
@@ -95,6 +103,9 @@
   <p class="sub">在岗位详情页点右下角「存 JD」，或按 <code>Alt+S</code></p>
 
   <div class="count"><b id="n">0</b><span>条已存</span></div>
+  <p class="tip" style="margin:-4px 0 9px;border:0;padding:0">
+    点条目下的小标签可切换<b>意向</b>与<b>投递状态</b>，情报台里能按它筛选。
+  </p>
 
   <div class="row">
     <button id="panel">💬 打开情报台（问它）</button>

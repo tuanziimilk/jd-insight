@@ -43,6 +43,12 @@
     display: grid; place-items: center; padding: 0;
   }
   .ico:hover { border-color: var(--acc); color: var(--acc); }
+  #scope {
+    font-family: var(--mono); font-size: 10.5px; padding: 3px 5px;
+    border: 1px solid var(--rule); border-radius: 5px;
+    background: var(--card); color: var(--ink2); max-width: 108px;
+  }
+  #scope:focus { outline: none; border-color: var(--acc); }
 
   #log { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
 
@@ -77,6 +83,13 @@
   .sources a { color: var(--acc); text-decoration: none; }
   .sources a:hover { text-decoration: underline; }
   .sources .s { color: var(--muted); font-family: var(--mono); }
+
+  .usage {
+    margin-top: 6px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--muted);
+  }
 
   .sys {
     align-self: center; text-align: center; font-size: 11.5px; color: var(--muted);
@@ -136,7 +149,15 @@
   <header>
     <h1>JD Insight</h1>
     <span class="n" id="count">0 条 JD</span>
+    <span class="n" id="cost" title=""></span>
     <span class="sp"></span>
+    <select id="scope" title="限定回答依据的范围">
+      <option value="">全部</option>
+      <option value="🔥">只看 🔥 想投</option>
+      <option value="👀">只看 👀 观察</option>
+      <option value="已投">只看已投</option>
+      <option value="面试中">只看面试中</option>
+    </select>
     <button class="ico" id="newchat" title="新会话">⟳</button>
     <button class="ico" id="settings" title="设置">⚙</button>
   </header>

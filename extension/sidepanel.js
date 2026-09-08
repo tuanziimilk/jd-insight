@@ -8,7 +8,9 @@
  * 另外：统计类问题走确定性计算，不进模型（省钱、可复现、不会算错）。
  */
 import { retrieve, buildContext, stats, coverage } from "./lib/retrieve.js";
-import { chatStream, chatOnce, getSettings, hasKey, explainError } from "./lib/llm.js";
+import {
+  chatStream, chatOnce, getSettings, hasKey, explainError, fmtCost, getUsageTotal,
+} from "./lib/llm.js";
 import {
   INTENTS, ruleClassify, classifyPrompt, parseIntentId, extractKeywords, systemPrompt,
 } from "./lib/intents.js";
@@ -16,11 +18,14 @@ import {
 const $ = (id) => document.getElementById(id);
 const log = $("log");
 
-let JDS = [];
+let ALL = [];          // 全部采集到的 JD
+let JDS = [];          // 当前筛选范围内的（回答只依据这些）
+let SCOPE = "";        // "" | 🔥 | 👀 | 已投 | 面试中
 let PROFILE = {};
 let HISTORY = [];      // [{role, content}] 只存文本，供多轮
 let BUSY = false;
 let PENDING = null;    // 槽位补齐后要继续的那次提问
+let SESSION = { calls: 0, inTok: 0, outTok: 0, cost: 0 }; // 本会话用量
 
 /* ---------------------------------------------------------------- 渲染 */
 
@@ -100,6 +105,44 @@ function addSources(bubble, picked) {
 }
 
 function scroll() { log.scrollTop = log.scrollHeight; }
+
+/** 按标签限定范围。范围之外的 JD 完全不参与检索和统计 */
+function applyScope() {
+  JDS = !SCOPE
+    ? ALL.slice()
+    : ALL.filter((r) => r.intent === SCOPE || r.status === SCOPE);
+  $("count").textContent = JDS.length + (SCOPE ? " / " + ALL.length : "") + " 条 JD";
+  $("count").title = SCOPE ? "已按「" + SCOPE + "」筛选" : "全部";
+}
+
+/** 在回答下方挂一行用量。PRD 里「效率成本」这层指标要看得见才有用 */
+function addUsage(bubble, usage, cost) {
+  if (!usage) return;
+  const i = usage.prompt_tokens || 0;
+  const o = usage.completion_tokens || 0;
+  SESSION.calls += 1;
+  SESSION.inTok += i;
+  SESSION.outTok += o;
+  SESSION.cost += cost || 0;
+  const d = document.createElement("div");
+  d.className = "usage";
+  d.textContent =
+    (i + o).toLocaleString() + " tok（入 " + i.toLocaleString() +
+    " / 出 " + o.toLocaleString() + "）· ≈" + fmtCost(cost) +
+    (usage.estimated ? "  ⚠ 端点未回 usage，按字符数估算" : "");
+  bubble.parentElement.appendChild(d);
+  paintSession();
+}
+
+function paintSession() {
+  const el = $("cost");
+  if (!el) return;
+  if (!SESSION.calls) { el.textContent = ""; el.title = ""; return; }
+  el.textContent = "本会话 " + fmtCost(SESSION.cost);
+  el.title =
+    "调用 " + SESSION.calls + " 次 · 输入 " + SESSION.inTok.toLocaleString() +
+    " tok · 输出 " + SESSION.outTok.toLocaleString() + " tok";
+}
 
 /* ---------------------------------------------------------------- 槽位追问 */
 
@@ -264,8 +307,9 @@ async function ask(question, opts = {}) {
       { role: "user", content: question },
     ];
     let acc = "";
+    let res = null;
     try {
-      await chatStream(msgs, (d) => {
+      res = await chatStream(msgs, (d) => {
         acc += d;
         b.classList.remove("dots");
         b.innerHTML = md(acc);
@@ -286,6 +330,7 @@ async function ask(question, opts = {}) {
     b.classList.remove("dots");
     b.innerHTML = md(acc);
     addSources(b, picked);
+    if (res) addUsage(b, res.usage, res.cost);
     HISTORY.push({ role: "user", content: question });
     HISTORY.push({ role: "assistant", content: acc.slice(0, 2000) });
     if (intent.hitl && !/【需你确认/.test(acc)) {
@@ -300,9 +345,9 @@ async function ask(question, opts = {}) {
 
 async function boot() {
   const s = await chrome.storage.local.get({ jds: [], profile: {} });
-  JDS = s.jds || [];
+  ALL = s.jds || [];
   PROFILE = s.profile || {};
-  $("count").textContent = JDS.length + " 条 JD";
+  applyScope();
 
   const st = await getSettings();
   if (!hasKey(st)) {
@@ -310,10 +355,22 @@ async function boot() {
   }
 
   addSys(
-    JDS.length
-      ? "已载入 " + JDS.length + " 条 JD。回答只依据它们。"
+    ALL.length
+      ? "已载入 " + JDS.length + " 条 JD" +
+        (SCOPE ? "（已按「" + SCOPE + "」筛选，共 " + ALL.length + " 条）" : "") +
+        "。回答只依据它们。"
       : "还没采集 JD。去岗位详情页按 Alt+S 存几条。"
   );
+
+  const tot = await getUsageTotal();
+  if (tot.calls) {
+    addSys(
+      "累计用量：" + tot.calls + " 次调用 · " +
+      ((tot.inTok || 0) + (tot.outTok || 0)).toLocaleString() + " tok · ≈" +
+      fmtCost(tot.cost) + "（自 " + (tot.since || "—") + "）"
+    );
+  }
+  paintSession();
 }
 
 $("send").onclick = () => { const v = $("q").value; $("q").value = ""; ask(v); };
@@ -328,11 +385,25 @@ $("quick").addEventListener("click", (e) => {
   const q = e.target.getAttribute("data-q");
   if (q) ask(q);
 });
-$("newchat").onclick = () => { HISTORY = []; log.innerHTML = ""; PENDING = null; boot(); };
+$("newchat").onclick = () => {
+  HISTORY = []; log.innerHTML = ""; PENDING = null;
+  SESSION = { calls: 0, inTok: 0, outTok: 0, cost: 0 };
+  boot();
+};
 $("settings").onclick = () => chrome.runtime.openOptionsPage();
 
+$("scope").addEventListener("change", (e) => {
+  SCOPE = e.target.value;
+  applyScope();
+  addSys(
+    SCOPE
+      ? "范围已限定为「" + SCOPE + "」：" + JDS.length + " 条 —— 之后的回答只看这些"
+      : "范围恢复为全部 " + JDS.length + " 条"
+  );
+});
+
 chrome.storage.onChanged.addListener((ch) => {
-  if (ch.jds) { JDS = ch.jds.newValue || []; $("count").textContent = JDS.length + " 条 JD"; }
+  if (ch.jds) { ALL = ch.jds.newValue || []; applyScope(); }
 });
 
 boot();

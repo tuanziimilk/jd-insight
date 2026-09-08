@@ -88,6 +88,21 @@
 
     <div class="row">
       <div>
+        <label for="priceIn">输入单价（元 / 百万 token）</label>
+        <input id="priceIn" type="number" step="0.1" min="0">
+      </div>
+      <div>
+        <label for="priceOut">输出单价（元 / 百万 token）</label>
+        <input id="priceOut" type="number" step="0.1" min="0">
+      </div>
+    </div>
+    <p class="tip">
+      只用来估算花费，不影响调用。默认填的是 DeepSeek 参考值，
+      <b>各厂价格随时变，以官网为准</b>——所以做成可配置而不是写死在代码里。
+    </p>
+
+    <div class="row">
+      <div>
         <label for="temperature">Temperature</label>
         <input id="temperature" type="number" step="0.1" min="0" max="2">
         <p class="tip">0.3 左右合适。求职分析要稳，别调高。</p>
@@ -108,9 +123,18 @@
       <tr><td><code>profile</code></td><td>你粘贴的简历（用于诊断）</td><td>只有你 + 你选的模型厂商</td></tr>
       <tr><td><code>llm</code></td><td>base_url / model / key</td><td>只有你</td></tr>
     </table>
+    <p class="tip" style="margin-top:13px">累计用量（本地统计，用于「效率成本」这层指标）：</p>
+    <table>
+      <tr><th>调用次数</th><th>输入 token</th><th>输出 token</th><th>估算花费</th><th>起始</th></tr>
+      <tr>
+        <td id="uCalls">—</td><td id="uIn">—</td><td id="uOut">—</td>
+        <td id="uCost">—</td><td id="uSince">—</td>
+      </tr>
+    </table>
     <div class="bar" style="margin-top:13px">
       <button class="ghost" id="clearProfile">清除简历</button>
       <button class="ghost" id="clearKey">清除 Key</button>
+      <button class="ghost" id="clearUsage">重置用量</button>
     </div>
   </fieldset>
 

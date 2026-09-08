@@ -7,6 +7,27 @@
 const $ = (id) => document.getElementById(id);
 let CACHE = [];
 
+/* 打标：两个维度，点击循环切换。
+ * 刻意不在采集时问——采集要一次点击不打断浏览，标签是回头整理时才需要的东西。 */
+const INTENT_CYCLE = ["", "🔥", "👀", "❌"];
+const INTENT_LABEL = { "": "未定", "🔥": "想投", "👀": "观察", "❌": "不考虑" };
+const STATUS_CYCLE = ["", "已投", "面试中", "已挂", "已拒"];
+
+function nextIn(cycle, cur) {
+  const i = cycle.indexOf(cur || "");
+  return cycle[(i + 1) % cycle.length];
+}
+
+async function setField(key, field, value) {
+  const { jds = [] } = await chrome.storage.local.get({ jds: [] });
+  const i = jds.findIndex((x) => x.key === key);
+  if (i < 0) return;
+  jds[i][field] = value;
+  await chrome.storage.local.set({ jds });
+  CACHE = jds;
+  render();
+}
+
 const SITE_NAME = {
   "zhipin.com": "BOSS",
   "zhaopin.com": "智联",
@@ -29,6 +50,8 @@ function toBlock(r) {
   lines.push("#来源: " + siteLabel(r.site));
   if (r.salary) lines.push("#薪资: " + firstLine(r.salary));
   if (r.tagline) lines.push("#标签: " + r.tagline.replace(/\n+/g, " / "));
+  if (r.intent) lines.push("#意向: " + (INTENT_LABEL[r.intent] || r.intent));
+  if (r.status) lines.push("#状态: " + r.status);
   if (r.url) lines.push("#链接: " + r.url);
   if (r.ts) lines.push("#采集时间: " + r.ts);
   lines.push("");
@@ -91,6 +114,24 @@ function render() {
         w.textContent = "⚠ 正文没抓准，已存整页文本兜底";
         d.appendChild(w);
       }
+
+      // 两个可点切换的标签
+      const tags = document.createElement("div");
+      tags.className = "tags";
+      const bi = document.createElement("button");
+      bi.className = "chip" + (r.intent ? " on" : "");
+      bi.textContent = r.intent ? r.intent + " " + INTENT_LABEL[r.intent] : "＋意向";
+      bi.title = "点击切换：未定 → 想投 → 观察 → 不考虑";
+      bi.onclick = () => setField(r.key, "intent", nextIn(INTENT_CYCLE, r.intent));
+      const bs = document.createElement("button");
+      bs.className = "chip" + (r.status ? " on" : "");
+      bs.textContent = r.status || "＋状态";
+      bs.title = "点击切换：未投 → 已投 → 面试中 → 已挂 → 已拒";
+      bs.onclick = () => setField(r.key, "status", nextIn(STATUS_CYCLE, r.status));
+      tags.appendChild(bi);
+      tags.appendChild(bs);
+      d.appendChild(tags);
+
       list.appendChild(d);
     });
 }

@@ -14,7 +14,45 @@ const DEFAULTS = {
   model: "deepseek-chat",
   temperature: 0.3,
   maxTokens: 1600,
+  // 每百万 token 单价（元）。默认填的是 DeepSeek 的参考值，
+  // ⚠️ 各厂价格随时变，**以官网为准**——所以做成可配置，不硬编在代码里。
+  priceIn: 2,
+  priceOut: 8,
 };
+
+/** 按 usage 估算这次调用花了多少钱（元） */
+export function estimateCost(usage, s) {
+  if (!usage) return 0;
+  const pin = Number(s.priceIn) || 0;
+  const pout = Number(s.priceOut) || 0;
+  const i = usage.prompt_tokens || 0;
+  const o = usage.completion_tokens || 0;
+  return (i / 1e6) * pin + (o / 1e6) * pout;
+}
+
+/** 累计用量，存本地。这是「效率成本」这层指标的数据来源 */
+export async function bumpUsage(usage, cost) {
+  if (!usage) return;
+  const { usageTotal = {} } = await chrome.storage.local.get({ usageTotal: {} });
+  const t = {
+    calls: (usageTotal.calls || 0) + 1,
+    inTok: (usageTotal.inTok || 0) + (usage.prompt_tokens || 0),
+    outTok: (usageTotal.outTok || 0) + (usage.completion_tokens || 0),
+    cost: (usageTotal.cost || 0) + (cost || 0),
+    since: usageTotal.since || new Date().toISOString().slice(0, 10),
+  };
+  await chrome.storage.local.set({ usageTotal: t });
+  return t;
+}
+
+export async function getUsageTotal() {
+  const { usageTotal = {} } = await chrome.storage.local.get({ usageTotal: {} });
+  return usageTotal;
+}
+
+export async function resetUsage() {
+  await chrome.storage.local.set({ usageTotal: {} });
+}
 
 export async function getSettings() {
   const s = await chrome.storage.local.get({ llm: {} });
@@ -110,10 +148,18 @@ export async function chatStream(messages, onDelta, opts = {}) {
     }
   }
   clearTimeout(timer);
-  return { text, usage };
+
+  // 有些端点流式返回不带 usage，估一个（约 1.6 字符/token，中文偏保守）
+  if (!usage) {
+    const est = (JSON.stringify(messages).length + text.length) / 1.6;
+    usage = { prompt_tokens: Math.round(est * 0.75), completion_tokens: Math.round(est * 0.25), estimated: true };
+  }
+  const cost = estimateCost(usage, s);
+  await bumpUsage(usage, cost);
+  return { text, usage, cost };
 }
 
-/** 非流式的一次性调用，用于意图分类这种短任务 */
+/** 非流式的一次性调用，用于意图分类这种短任务。用量已由 chatStream 内部累计 */
 export async function chatOnce(messages, opts = {}) {
   let out = "";
   const r = await chatStream(messages, (d) => (out += d), {
@@ -121,6 +167,13 @@ export async function chatOnce(messages, opts = {}) {
     temperature: opts.temperature ?? 0,
   });
   return (r.text || out).trim();
+}
+
+/** 金额格式化：小额显示到 4 位小数，否则 2 位 */
+export function fmtCost(v) {
+  const n = Number(v) || 0;
+  if (n === 0) return "¥0";
+  return "¥" + (n < 0.01 ? n.toFixed(4) : n.toFixed(2));
 }
 
 /** 把错误码翻成人话——错误信息要说清「怎么办」，不是只说「失败了」 */

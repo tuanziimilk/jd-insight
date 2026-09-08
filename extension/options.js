@@ -1,4 +1,7 @@
-import { getSettings, saveSettings, chatOnce, explainError } from "./lib/llm.js";
+import {
+  getSettings, saveSettings, chatOnce, explainError,
+  getUsageTotal, resetUsage, fmtCost,
+} from "./lib/llm.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -13,11 +16,21 @@ const PRESETS = {
   ollama: { baseUrl: "http://localhost:11434/v1", model: "qwen2.5:7b" },
 };
 
-const FIELDS = ["baseUrl", "model", "apiKey", "temperature", "maxTokens"];
+const FIELDS = ["baseUrl", "model", "apiKey", "temperature", "maxTokens", "priceIn", "priceOut"];
+
+async function paintUsage() {
+  const t = await getUsageTotal();
+  $("uCalls").textContent = t.calls || 0;
+  $("uIn").textContent = (t.inTok || 0).toLocaleString();
+  $("uOut").textContent = (t.outTok || 0).toLocaleString();
+  $("uCost").textContent = fmtCost(t.cost);
+  $("uSince").textContent = t.since || "—";
+}
 
 async function load() {
   const s = await getSettings();
   FIELDS.forEach((k) => ($(k).value = s[k] ?? ""));
+  await paintUsage();
 }
 
 $("preset").onchange = (e) => {
@@ -36,6 +49,8 @@ $("save").onclick = async () => {
     apiKey: $("apiKey").value.trim(),
     temperature: parseFloat($("temperature").value) || 0.3,
     maxTokens: parseInt($("maxTokens").value, 10) || 1600,
+    priceIn: parseFloat($("priceIn").value) || 0,
+    priceOut: parseFloat($("priceOut").value) || 0,
   });
   $("status").textContent = "✓ 已保存";
   setTimeout(() => ($("status").textContent = ""), 2200);
@@ -59,6 +74,13 @@ $("clearProfile").onclick = async () => {
   if (!confirm("清除已保存的简历？下次诊断会重新问你要。")) return;
   await chrome.storage.local.set({ profile: {} });
   $("status").textContent = "✓ 简历已清除";
+};
+
+$("clearUsage").onclick = async () => {
+  if (!confirm("重置累计用量统计？（不影响 JD 和简历）")) return;
+  await resetUsage();
+  await paintUsage();
+  $("status").textContent = "✓ 用量已重置";
 };
 
 $("clearKey").onclick = async () => {
