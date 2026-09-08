@@ -25,7 +25,8 @@ let PROFILE = {};
 let HISTORY = [];      // [{role, content}] 只存文本，供多轮
 let BUSY = false;
 let PENDING = null;    // 槽位补齐后要继续的那次提问
-let SESSION = { calls: 0, inTok: 0, outTok: 0, cost: 0 }; // 本会话用量
+// 本会话用量。hitTok 单独记，因为缓存命中率是可优化的成本指标
+let SESSION = { calls: 0, inTok: 0, hitTok: 0, outTok: 0, reasonTok: 0, cost: 0, unpriced: 0 };
 
 /* ---------------------------------------------------------------- 渲染 */
 
@@ -116,20 +117,29 @@ function applyScope() {
 }
 
 /** 在回答下方挂一行用量。PRD 里「效率成本」这层指标要看得见才有用 */
-function addUsage(bubble, usage, cost) {
-  if (!usage) return;
-  const i = usage.prompt_tokens || 0;
-  const o = usage.completion_tokens || 0;
+function addUsage(bubble, res) {
+  const u = res && res.split;
+  if (!u) return;
   SESSION.calls += 1;
-  SESSION.inTok += i;
-  SESSION.outTok += o;
-  SESSION.cost += cost || 0;
+  SESSION.inTok += u.prompt;
+  SESSION.hitTok += u.hit;
+  SESSION.outTok += u.out;
+  SESSION.reasonTok += u.reasoning;
+  if (res.priced) SESSION.cost += res.cost || 0;
+  else SESSION.unpriced += 1;
+
+  const bits = [];
+  bits.push("入 " + u.prompt.toLocaleString());
+  if (u.hit) bits.push("缓存命中 " + u.hit.toLocaleString());
+  bits.push("出 " + u.out.toLocaleString());
+  if (u.reasoning) bits.push("其中思考 " + u.reasoning.toLocaleString());
+  const money = res.priced ? "≈" + fmtCost(res.cost) : "未配价格";
+
   const d = document.createElement("div");
   d.className = "usage";
   d.textContent =
-    (i + o).toLocaleString() + " tok（入 " + i.toLocaleString() +
-    " / 出 " + o.toLocaleString() + "）· ≈" + fmtCost(cost) +
-    (usage.estimated ? "  ⚠ 端点未回 usage，按字符数估算" : "");
+    bits.join(" · ") + " tok · " + money +
+    (u.estimated ? "  ⚠ 端点未回 usage，按字符数估算" : "");
   bubble.parentElement.appendChild(d);
   paintSession();
 }
@@ -138,10 +148,17 @@ function paintSession() {
   const el = $("cost");
   if (!el) return;
   if (!SESSION.calls) { el.textContent = ""; el.title = ""; return; }
-  el.textContent = "本会话 " + fmtCost(SESSION.cost);
+  const hitRate = SESSION.inTok
+    ? Math.round((SESSION.hitTok / SESSION.inTok) * 100) : 0;
+  el.textContent = SESSION.unpriced === SESSION.calls
+    ? "本会话 " + SESSION.calls + " 次"
+    : "本会话 " + fmtCost(SESSION.cost);
   el.title =
-    "调用 " + SESSION.calls + " 次 · 输入 " + SESSION.inTok.toLocaleString() +
-    " tok · 输出 " + SESSION.outTok.toLocaleString() + " tok";
+    "调用 " + SESSION.calls + " 次\n" +
+    "输入 " + SESSION.inTok.toLocaleString() + " tok（缓存命中 " + hitRate + "%）\n" +
+    "输出 " + SESSION.outTok.toLocaleString() + " tok" +
+    (SESSION.reasonTok ? "（其中思考 " + SESSION.reasonTok.toLocaleString() + "）" : "") +
+    (SESSION.unpriced ? "\n⚠ " + SESSION.unpriced + " 次未配价格，钱数不含它们" : "");
 }
 
 /* ---------------------------------------------------------------- 槽位追问 */
@@ -330,7 +347,7 @@ async function ask(question, opts = {}) {
     b.classList.remove("dots");
     b.innerHTML = md(acc);
     addSources(b, picked);
-    if (res) addUsage(b, res.usage, res.cost);
+    if (res) addUsage(b, res);
     HISTORY.push({ role: "user", content: question });
     HISTORY.push({ role: "assistant", content: acc.slice(0, 2000) });
     if (intent.hitl && !/【需你确认/.test(acc)) {
@@ -364,10 +381,12 @@ async function boot() {
 
   const tot = await getUsageTotal();
   if (tot.calls) {
+    const hr = tot.inTok ? Math.round(((tot.hitTok || 0) / tot.inTok) * 100) : 0;
     addSys(
-      "累计用量：" + tot.calls + " 次调用 · " +
-      ((tot.inTok || 0) + (tot.outTok || 0)).toLocaleString() + " tok · ≈" +
-      fmtCost(tot.cost) + "（自 " + (tot.since || "—") + "）"
+      "累计：" + tot.calls + " 次 · " +
+      ((tot.inTok || 0) + (tot.outTok || 0)).toLocaleString() + " tok · 缓存命中 " + hr + "% · ≈" +
+      fmtCost(tot.cost) + (tot.unpriced ? "（" + tot.unpriced + " 次未配价格）" : "") +
+      "（自 " + (tot.since || "—") + "）"
     );
   }
   paintSession();
@@ -387,7 +406,7 @@ $("quick").addEventListener("click", (e) => {
 });
 $("newchat").onclick = () => {
   HISTORY = []; log.innerHTML = ""; PENDING = null;
-  SESSION = { calls: 0, inTok: 0, outTok: 0, cost: 0 };
+  SESSION = { calls: 0, inTok: 0, hitTok: 0, outTok: 0, reasonTok: 0, cost: 0, unpriced: 0 };
   boot();
 };
 $("settings").onclick = () => chrome.runtime.openOptionsPage();

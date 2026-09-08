@@ -11,34 +11,78 @@
 
 const DEFAULTS = {
   baseUrl: "https://api.deepseek.com/v1",
-  model: "deepseek-chat",
+  model: "deepseek-v4-flash",
   temperature: 0.3,
-  maxTokens: 1600,
-  // 每百万 token 单价（元）。默认填的是 DeepSeek 的参考值，
-  // ⚠️ 各厂价格随时变，**以官网为准**——所以做成可配置，不硬编在代码里。
-  priceIn: 2,
-  priceOut: 8,
+  maxTokens: 2000,
+  extraBody: "",   // 厂商特有参数（JSON），例如关掉思考模式——见 options 页说明
+  // 按模型分别配价：{ 模型名: { in, cacheIn, out } }，单位「元 / 百万 token」
+  // ⚠️ **刻意不预填任何数字。** 价格是外部易变事实，写进代码迟早过期，
+  //    而一个"看起来精确但其实错的成本"比不显示更糟。首次使用请去官网抄当前价。
+  pricing: {},
 };
 
-/** 按 usage 估算这次调用花了多少钱（元） */
-export function estimateCost(usage, s) {
-  if (!usage) return 0;
-  const pin = Number(s.priceIn) || 0;
-  const pout = Number(s.priceOut) || 0;
-  const i = usage.prompt_tokens || 0;
-  const o = usage.completion_tokens || 0;
-  return (i / 1e6) * pin + (o / 1e6) * pout;
+/** 取当前模型的价格档；没配就返回 null（上层显示「未配价格」而不是 ¥0） */
+export function priceOf(s, model) {
+  const m = model || s.model;
+  const p = (s.pricing || {})[m];
+  if (!p) return null;
+  const hasAny = ["in", "cacheIn", "out"].some((k) => Number(p[k]) > 0);
+  return hasAny ? p : null;
+}
+
+/**
+ * 拆解 usage，兼容 OpenAI 标准字段 + DeepSeek 的缓存字段 + 思考 token。
+ * 这三类必须分开，因为**它们的单价不一样**：
+ *   - 缓存命中的输入 token 便宜得多
+ *   - 思考（reasoning）token 计入输出计费，但用户看不见内容
+ */
+export function splitUsage(usage) {
+  if (!usage) return null;
+  const prompt = usage.prompt_tokens || 0;
+  // DeepSeek 风格
+  let hit = usage.prompt_cache_hit_tokens;
+  let miss = usage.prompt_cache_miss_tokens;
+  // OpenAI 风格：prompt_tokens_details.cached_tokens
+  if (hit == null && usage.prompt_tokens_details) {
+    hit = usage.prompt_tokens_details.cached_tokens;
+  }
+  hit = Number(hit) || 0;
+  miss = miss == null ? Math.max(prompt - hit, 0) : Number(miss) || 0;
+
+  const out = usage.completion_tokens || 0;
+  const reasoning =
+    Number(usage.completion_tokens_details?.reasoning_tokens) ||
+    Number(usage.reasoning_tokens) || 0;
+
+  return { prompt, hit, miss, out, reasoning, estimated: !!usage.estimated };
+}
+
+/** 估算花费（元）。价格没配返回 null，让上层显示「未配价格」 */
+export function estimateCost(usage, s, model) {
+  const u = splitUsage(usage);
+  const p = priceOf(s, model);
+  if (!u || !p) return null;
+  const pIn = Number(p.in) || 0;
+  // 缓存命中价没填就退回普通输入价（保守，不会低估）
+  const pHit = Number(p.cacheIn) > 0 ? Number(p.cacheIn) : pIn;
+  const pOut = Number(p.out) || 0;
+  return (u.miss / 1e6) * pIn + (u.hit / 1e6) * pHit + (u.out / 1e6) * pOut;
 }
 
 /** 累计用量，存本地。这是「效率成本」这层指标的数据来源 */
 export async function bumpUsage(usage, cost) {
-  if (!usage) return;
+  const u = splitUsage(usage);
+  if (!u) return;
   const { usageTotal = {} } = await chrome.storage.local.get({ usageTotal: {} });
   const t = {
     calls: (usageTotal.calls || 0) + 1,
-    inTok: (usageTotal.inTok || 0) + (usage.prompt_tokens || 0),
-    outTok: (usageTotal.outTok || 0) + (usage.completion_tokens || 0),
+    inTok: (usageTotal.inTok || 0) + u.prompt,
+    hitTok: (usageTotal.hitTok || 0) + u.hit,
+    outTok: (usageTotal.outTok || 0) + u.out,
+    reasonTok: (usageTotal.reasonTok || 0) + u.reasoning,
     cost: (usageTotal.cost || 0) + (cost || 0),
+    // 价格没配时也累计 token，只是钱算不出来——把这个情况记下来
+    unpriced: (usageTotal.unpriced || 0) + (cost == null ? 1 : 0),
     since: usageTotal.since || new Date().toISOString().slice(0, 10),
   };
   await chrome.storage.local.set({ usageTotal: t });
@@ -85,7 +129,19 @@ export async function chatStream(messages, onDelta, opts = {}) {
     temperature: opts.temperature ?? s.temperature,
     max_tokens: opts.maxTokens ?? s.maxTokens,
     stream: true,
+    // 让流式响应也带 usage（OpenAI 兼容端点普遍支持；不支持的会忽略）
+    stream_options: { include_usage: true },
   };
+
+  // 厂商特有参数（如关闭思考模式）。做成用户可填的 JSON，
+  // 因为各厂参数名不一样、还会变——**我不猜参数名，让用户照官网文档填。**
+  if (s.extraBody && s.extraBody.trim()) {
+    try {
+      Object.assign(body, JSON.parse(s.extraBody));
+    } catch (e) {
+      throw new Error("BAD_EXTRA_BODY");
+    }
+  }
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs || 90000);
@@ -151,12 +207,16 @@ export async function chatStream(messages, onDelta, opts = {}) {
 
   // 有些端点流式返回不带 usage，估一个（约 1.6 字符/token，中文偏保守）
   if (!usage) {
-    const est = (JSON.stringify(messages).length + text.length) / 1.6;
-    usage = { prompt_tokens: Math.round(est * 0.75), completion_tokens: Math.round(est * 0.25), estimated: true };
+    const promptChars = JSON.stringify(messages).length;
+    usage = {
+      prompt_tokens: Math.round(promptChars / 1.6),
+      completion_tokens: Math.round(text.length / 1.6),
+      estimated: true,
+    };
   }
-  const cost = estimateCost(usage, s);
+  const cost = estimateCost(usage, s, body.model);
   await bumpUsage(usage, cost);
-  return { text, usage, cost };
+  return { text, usage, cost, split: splitUsage(usage), priced: cost != null };
 }
 
 /** 非流式的一次性调用，用于意图分类这种短任务。用量已由 chatStream 内部累计 */
@@ -184,6 +244,7 @@ export function explainError(msg) {
   if (m === "TIMEOUT") return "请求超时。可能是网络问题或模型太慢——重试一次，或换个更快的模型。";
   if (m === "NETWORK") return "网络请求失败。检查 base_url 是否正确、能不能访问该域名（有些端点需要代理）。";
   if (m.startsWith("RETRYABLE:")) return "服务端忙（" + m.split(":")[1] + "），这是可重试错误，等几秒再点重试。";
+  if (m === "BAD_EXTRA_BODY") return "设置里的「附加请求参数」不是合法 JSON，改对或清空。";
   if (m.startsWith("HTTP_")) return "接口报错：" + m.slice(5, 160);
   return m.slice(0, 200);
 }

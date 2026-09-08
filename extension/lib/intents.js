@@ -144,6 +144,21 @@ export function parseIntentId(raw) {
 
 /* ---------------------------------------------------------------- 系统提示 */
 
+/* ⚠️ 提示词拼装顺序 = 成本问题，不只是可读性问题。
+ *
+ * 各家的上下文缓存都是**前缀匹配**：只要开头一段字节完全一致就能命中，
+ * 一旦中间某处变了，后面全部失效、按全价重算。
+ *
+ * 所以顺序必须是「越不变的放越前」：
+ *   ① base 硬规则（永不变）
+ *   ② 用户简历（同一用户内稳定）
+ *   ③ 意图指令（换意图才变）
+ *   ④ 降级标记（偶发）
+ *   ⑤ 检索到的 JD（每次都变）
+ *
+ * 之前的顺序把「意图指令」放在「简历」前面——换个意图就把简历那一大段
+ * 也踢出缓存了。简历动辄几千 token，这个顺序错误的代价是实打实的。
+ */
 export function systemPrompt(intent, ctx, profile, degraded) {
   const base = [
     "你是「JD Insight」的求职情报助手。用户采集了一批真实招聘 JD，你基于这些 JD 回答。",
@@ -156,6 +171,12 @@ export function systemPrompt(intent, ctx, profile, degraded) {
     "4. 回答要短、有结构。能用表格就用表格。不要写客套话。",
   ];
 
+  // ② 简历：同一用户内稳定，放在会变的意图指令之前
+  if (profile && profile.resume) {
+    base.push("", "---", "【用户简历】", profile.resume.slice(0, 6000));
+  }
+
+  // ③ 意图指令
   if (intent.id === "DIAGNOSE") {
     base.push(
       "",
@@ -192,9 +213,7 @@ export function systemPrompt(intent, ctx, profile, degraded) {
     );
   }
 
-  if (profile && profile.resume) {
-    base.push("", "---", "【用户简历】", profile.resume.slice(0, 6000));
-  }
+  // ⑤ 检索结果：每次都变，必须放最后
   if (ctx) {
     base.push("", "---", "【检索到的相关 JD】", ctx);
   }

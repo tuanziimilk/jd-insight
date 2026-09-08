@@ -6,7 +6,8 @@ import {
 const $ = (id) => document.getElementById(id);
 
 const PRESETS = {
-  deepseek: { baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat" },
+  "deepseek-flash": { baseUrl: "https://api.deepseek.com/v1", model: "deepseek-v4-flash" },
+  "deepseek-pro": { baseUrl: "https://api.deepseek.com/v1", model: "deepseek-v4-pro" },
   openai: { baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
   moonshot: { baseUrl: "https://api.moonshot.cn/v1", model: "moonshot-v1-8k" },
   dashscope: {
@@ -16,28 +17,97 @@ const PRESETS = {
   ollama: { baseUrl: "http://localhost:11434/v1", model: "qwen2.5:7b" },
 };
 
-const FIELDS = ["baseUrl", "model", "apiKey", "temperature", "maxTokens", "priceIn", "priceOut"];
+const FIELDS = ["baseUrl", "model", "apiKey", "temperature", "maxTokens", "extraBody"];
+
+/* ---------------- 价格表：按模型一行三档 ---------------- */
+let PRICING = {};
+
+function priceRow(model, p) {
+  const tr = document.createElement("tr");
+  const mk = (val, ph, cls) => {
+    const td = document.createElement("td");
+    const inp = document.createElement("input");
+    inp.value = val ?? "";
+    inp.placeholder = ph;
+    if (cls) inp.type = "number", inp.step = "0.1", inp.min = "0";
+    td.appendChild(inp);
+    tr.appendChild(td);
+    return inp;
+  };
+  const im = mk(model, "模型名，如 deepseek-v4-flash");
+  const ii = mk(p.in, "—", 1);
+  const ic = mk(p.cacheIn, "留空=同未命中", 1);
+  const io_ = mk(p.out, "—", 1);
+  const tdDel = document.createElement("td");
+  tdDel.style.border = "0";
+  const del = document.createElement("button");
+  del.className = "ghost";
+  del.textContent = "×";
+  del.style.padding = "2px 8px";
+  del.onclick = () => { tr.remove(); };
+  tdDel.appendChild(del);
+  tr.appendChild(tdDel);
+  tr._read = () => {
+    const name = im.value.trim();
+    if (!name) return null;
+    return [name, { in: parseFloat(ii.value) || 0, cacheIn: parseFloat(ic.value) || 0, out: parseFloat(io_.value) || 0 }];
+  };
+  return tr;
+}
+
+function paintPricing(pricing, currentModel) {
+  const t = $("priceTable");
+  Array.from(t.querySelectorAll("tr")).slice(1).forEach((r) => r.remove());
+  const entries = Object.entries(pricing || {});
+  // 当前模型没有价格行就自动加一行，省得用户找不到入口
+  if (currentModel && !entries.find(([m]) => m === currentModel)) {
+    entries.unshift([currentModel, {}]);
+  }
+  if (!entries.length) entries.push(["", {}]);
+  entries.forEach(([m, p]) => t.appendChild(priceRow(m, p || {})));
+}
+
+function readPricing() {
+  const out = {};
+  Array.from($("priceTable").querySelectorAll("tr")).slice(1).forEach((r) => {
+    const kv = r._read && r._read();
+    if (kv) out[kv[0]] = kv[1];
+  });
+  return out;
+}
 
 async function paintUsage() {
   const t = await getUsageTotal();
+  const inTok = t.inTok || 0;
   $("uCalls").textContent = t.calls || 0;
-  $("uIn").textContent = (t.inTok || 0).toLocaleString();
+  $("uIn").textContent = inTok.toLocaleString();
+  $("uHit").textContent = inTok ? Math.round(((t.hitTok || 0) / inTok) * 100) + "%" : "—";
   $("uOut").textContent = (t.outTok || 0).toLocaleString();
-  $("uCost").textContent = fmtCost(t.cost);
+  $("uReason").textContent = (t.reasonTok || 0).toLocaleString();
+  $("uCost").textContent = t.unpriced
+    ? fmtCost(t.cost) + "（" + t.unpriced + " 次未配价格）"
+    : fmtCost(t.cost);
   $("uSince").textContent = t.since || "—";
 }
 
 async function load() {
   const s = await getSettings();
   FIELDS.forEach((k) => ($(k).value = s[k] ?? ""));
+  PRICING = s.pricing || {};
+  paintPricing(PRICING, s.model);
   await paintUsage();
 }
+
+$("addModel").onclick = () => {
+  $("priceTable").appendChild(priceRow("", {}));
+};
 
 $("preset").onchange = (e) => {
   const p = PRESETS[e.target.value];
   if (!p) return;
   $("baseUrl").value = p.baseUrl;
   $("model").value = p.model;
+  paintPricing(readPricing(), p.model);   // 换模型时自动补一行价格
   if (e.target.value === "ollama") $("apiKey").value = "ollama"; // 本地不校验，但字段不能空
   $("status").textContent = "已填入，记得保存";
 };
@@ -48,9 +118,9 @@ $("save").onclick = async () => {
     model: $("model").value.trim(),
     apiKey: $("apiKey").value.trim(),
     temperature: parseFloat($("temperature").value) || 0.3,
-    maxTokens: parseInt($("maxTokens").value, 10) || 1600,
-    priceIn: parseFloat($("priceIn").value) || 0,
-    priceOut: parseFloat($("priceOut").value) || 0,
+    maxTokens: parseInt($("maxTokens").value, 10) || 2000,
+    extraBody: $("extraBody").value.trim(),
+    pricing: readPricing(),
   });
   $("status").textContent = "✓ 已保存";
   setTimeout(() => ($("status").textContent = ""), 2200);

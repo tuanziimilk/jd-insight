@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "JD Insight · 求职情报台",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "在你自己浏览的岗位详情页一键存下 JD，然后用对话问它：高频要求是什么、我缺什么、面试会问什么。只读当前页面，不自动翻页。",
   "permissions": ["storage", "downloads", "sidePanel"],
   "host_permissions": [

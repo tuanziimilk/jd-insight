@@ -45,6 +45,9 @@
   table { border-collapse:collapse; width:100%; font-size:12.5px; margin-top:8px }
   th,td { border:1px solid var(--rule); padding:5px 8px; text-align:left }
   th { background:var(--sunk); font-weight:600 }
+  th .mini { font-weight:400; font-size:10px; color:var(--muted) }
+  #priceTable input { padding:4px 6px; font-size:12px }
+  #priceTable td:first-child input { font-family:var(--mono) }
 </style>
 </head>
 <body>
@@ -63,7 +66,8 @@
     <label for="preset">快速选择</label>
     <select id="preset">
       <option value="">— 自定义 —</option>
-      <option value="deepseek">DeepSeek（便宜，中文好，推荐起步）</option>
+      <option value="deepseek-flash">DeepSeek V4 Flash（便宜，推荐起步）</option>
+      <option value="deepseek-pro">DeepSeek V4 Pro（更强，更贵）</option>
       <option value="openai">OpenAI</option>
       <option value="moonshot">Moonshot / Kimi</option>
       <option value="dashscope">阿里云百炼（通义）</option>
@@ -86,19 +90,13 @@
       </div>
     </div>
 
-    <div class="row">
-      <div>
-        <label for="priceIn">输入单价（元 / 百万 token）</label>
-        <input id="priceIn" type="number" step="0.1" min="0">
-      </div>
-      <div>
-        <label for="priceOut">输出单价（元 / 百万 token）</label>
-        <input id="priceOut" type="number" step="0.1" min="0">
-      </div>
-    </div>
+    <label for="extraBody">附加请求参数（JSON，可空）</label>
+    <input id="extraBody" placeholder='{"thinking": {"type": "disabled"}}'>
     <p class="tip">
-      只用来估算花费，不影响调用。默认填的是 DeepSeek 参考值，
-      <b>各厂价格随时变，以官网为准</b>——所以做成可配置而不是写死在代码里。
+      直接合并进请求体，用来传厂商特有参数——最常用的是<b>关掉思考模式</b>。
+      <b>参数名各厂不同且会变，请照官网文档填</b>（我不猜）。<br>
+      ⚠️ DeepSeek V4 <b>默认开启思考模式</b>，思考产生的 token 计入输出计费但你看不到内容。
+      本工具多数任务（统计、检索问答）不需要思考，关掉能明显省钱。
     </p>
 
     <div class="row">
@@ -109,9 +107,35 @@
       </div>
       <div>
         <label for="maxTokens">Max tokens</label>
-        <input id="maxTokens" type="number" step="100" min="256" max="8192">
+        <input id="maxTokens" type="number" step="100" min="256" max="65536">
       </div>
     </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Pricing</legend>
+    <p class="tip" style="margin-top:0">
+      <b>只用于估算花费，不影响调用。</b>单位：元 / 百万 token。<br>
+      <b>刻意没有预填任何数字</b>——价格是外部易变事实，写进代码迟早过期，
+      而「看起来精确但其实是错的成本」比不显示更糟。请去官网抄当前价填进来。<br>
+      DeepSeek 价格页：<code>platform.deepseek.com</code> → 定价
+    </p>
+    <table id="priceTable">
+      <tr>
+        <th>模型</th>
+        <th>输入<br><span class="mini">缓存未命中</span></th>
+        <th>输入<br><span class="mini">缓存命中</span></th>
+        <th>输出<br><span class="mini">含思考 token</span></th>
+      </tr>
+    </table>
+    <div class="bar" style="margin-top:10px">
+      <button class="ghost" id="addModel">＋ 加一个模型</button>
+    </div>
+    <p class="tip">
+      <b>为什么要分「缓存命中 / 未命中」</b>：命中缓存的输入 token 单价低得多。
+      按同一个价算会<b>系统性高估成本</b>——高估会让你为了省钱而砍掉本该做的功能。<br>
+      缓存留空则退回按未命中价计算（保守，不会低估）。
+    </p>
   </fieldset>
 
   <fieldset>
@@ -125,10 +149,10 @@
     </table>
     <p class="tip" style="margin-top:13px">累计用量（本地统计，用于「效率成本」这层指标）：</p>
     <table>
-      <tr><th>调用次数</th><th>输入 token</th><th>输出 token</th><th>估算花费</th><th>起始</th></tr>
+      <tr><th>调用</th><th>输入</th><th>缓存命中率</th><th>输出</th><th>其中思考</th><th>估算花费</th><th>起始</th></tr>
       <tr>
-        <td id="uCalls">—</td><td id="uIn">—</td><td id="uOut">—</td>
-        <td id="uCost">—</td><td id="uSince">—</td>
+        <td id="uCalls">—</td><td id="uIn">—</td><td id="uHit">—</td>
+        <td id="uOut">—</td><td id="uReason">—</td><td id="uCost">—</td><td id="uSince">—</td>
       </tr>
     </table>
     <div class="bar" style="margin-top:13px">
