@@ -144,7 +144,7 @@ export function parseIntentId(raw) {
 
 /* ---------------------------------------------------------------- 系统提示 */
 
-export function systemPrompt(intent, ctx, profile) {
+export function systemPrompt(intent, ctx, profile, degraded) {
   const base = [
     "你是「JD Insight」的求职情报助手。用户采集了一批真实招聘 JD，你基于这些 JD 回答。",
     "",
@@ -180,6 +180,15 @@ export function systemPrompt(intent, ctx, profile) {
       "",
       "本轮任务：**面试准备**。基于这些 JD 的共性要求，列出最可能被追问的问题，",
       "并标注哪些问题用户目前答不上来（依据他的画像）。"
+    );
+  }
+
+  if (degraded) {
+    base.push(
+      "",
+      "⚠️ 本轮是**降级回答**：用户跳过了必要信息（如简历）。",
+      "所以你必须在开头一句话说明「因为没有 XX，以下只能基于 JD 泛泛地说」，",
+      "**不要假装结论很可靠**，也不要虚构用户的背景。"
     );
   }
 

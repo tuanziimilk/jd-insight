@@ -228,7 +228,8 @@ async function ask(question, opts = {}) {
     }
 
     // ③ 槽位检查：缺了就问，不猜
-    const missing = (intent.slots || []).filter((s) => !PROFILE[s]);
+    //    opts.force = 用户已经明确跳过过一次，别再问第二遍（否则死循环）
+    const missing = opts.force ? [] : (intent.slots || []).filter((s) => !PROFILE[s]);
     if (missing.length) {
       PENDING = { question, intent };
       askSlot(missing[0], (filled) => {
@@ -239,7 +240,8 @@ async function ask(question, opts = {}) {
         } else {
           addSys("跳过了，那我只能基于 JD 泛泛地说——结论会弱很多");
           const p = PENDING; PENDING = null;
-          if (p) ask(p.question, { silentUser: true, force: true });
+          // force=true 让下一轮跳过槽位检查，degraded 让系统提示知道是降级回答
+          if (p) ask(p.question, { silentUser: true, force: true, degraded: true });
         }
       });
       return; // 注意：BUSY 由回调解锁
@@ -257,7 +259,7 @@ async function ask(question, opts = {}) {
     // ⑤ 生成（流式）
     const b = addAssistant(intent, by);
     const msgs = [
-      { role: "system", content: systemPrompt(intent, ctx, PROFILE) },
+      { role: "system", content: systemPrompt(intent, ctx, PROFILE, opts.degraded) },
       ...HISTORY.slice(-6),
       { role: "user", content: question },
     ];
