@@ -1,0 +1,30 @@
+# ---- 隐私：这些绝不能进仓库 ----
+# 个人画像（含自我能力评级、弱点），只提交 config.example.py
+analyzer/config.py
+
+# 采集到的 JD 原始数据（含公司信息、招聘者姓名）
+data/*
+!data/.gitkeep
+!data/sample_jd.txt
+
+# 生成的分析报告（含个人缺口评级）
+reports/
+*.report.md
+JD汇总报告.md
+
+# API key 及任何本地配置
+.env
+.env.*
+secrets.json
+
+# ---- 常规 ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+node_modules/
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/

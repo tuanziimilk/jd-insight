@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>JD Insight · 设置</title>
+<style>
+  :root {
+    --paper:#eef1f4; --card:#fff; --sunk:#dde5ea; --ink:#131b23; --ink2:#3e4c58;
+    --muted:#62717e; --rule:#c8d2da; --acc:#0d5c73; --warn:#91600d; --warn-soft:#f6ecd6;
+    --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --paper:#0e1418; --card:#161e25; --sunk:#121a20; --ink:#e4eaee; --ink2:#b9c6cf;
+      --muted:#8b9aa6; --rule:#2b353e; --acc:#6fbcd1; --warn:#d7a349; --warn-soft:#322718; }
+  }
+  * { box-sizing:border-box }
+  body { margin:0; padding:26px; background:var(--paper); color:var(--ink);
+    font:14px/1.7 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif; }
+  .wrap { max-width:620px; margin:0 auto }
+  h1 { margin:0 0 4px; font-size:19px }
+  .sub { margin:0 0 22px; color:var(--muted); font-size:13px }
+  fieldset { border:1px solid var(--rule); border-radius:7px; background:var(--card);
+    padding:16px 18px; margin:0 0 16px }
+  legend { padding:0 7px; font-size:12px; font-weight:600; color:var(--acc);
+    font-family:var(--mono); letter-spacing:.08em; text-transform:uppercase }
+  label { display:block; margin:12px 0 4px; font-size:12.5px; font-weight:600; color:var(--ink2) }
+  label:first-of-type { margin-top:0 }
+  input, select {
+    width:100%; padding:8px 10px; border:1px solid var(--rule); border-radius:5px;
+    background:var(--paper); color:var(--ink); font:13px/1.4 inherit;
+  }
+  input:focus, select:focus { outline:none; border-color:var(--acc) }
+  .tip { margin:4px 0 0; font-size:11.5px; color:var(--muted) }
+  .row { display:flex; gap:10px }
+  .row > div { flex:1 }
+  .warn { background:var(--warn-soft); border-left:3px solid var(--warn);
+    padding:11px 13px; border-radius:5px; font-size:12.5px; margin:0 0 16px; color:var(--ink2) }
+  .warn b { color:var(--warn) }
+  button { border:1px solid var(--acc); background:var(--acc); color:#fff;
+    padding:9px 18px; border-radius:6px; cursor:pointer; font:500 13px inherit }
+  button.ghost { background:var(--card); color:var(--acc) }
+  .bar { display:flex; gap:9px; align-items:center }
+  #status { font-size:12.5px; color:var(--muted) }
+  code { font-family:var(--mono); background:var(--sunk); padding:1px 5px; border-radius:3px; font-size:.88em }
+  table { border-collapse:collapse; width:100%; font-size:12.5px; margin-top:8px }
+  th,td { border:1px solid var(--rule); padding:5px 8px; text-align:left }
+  th { background:var(--sunk); font-weight:600 }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>JD Insight 设置</h1>
+  <p class="sub">配置模型。只有对话功能需要，采集和统计不需要。</p>
+
+  <div class="warn">
+    <b>关于你的 Key</b>：它只存在这台电脑的浏览器本地存储里，只会发给你自己填的 base_url。
+    本项目<b>没有任何服务器</b>，我看不到你的 key，也看不到你的 JD 数据。<br>
+    代价是：<b>能物理接触这台电脑的人可以读到它</b>。共用电脑请用低额度的专用 key。
+  </div>
+
+  <fieldset>
+    <legend>Model</legend>
+    <label for="preset">快速选择</label>
+    <select id="preset">
+      <option value="">— 自定义 —</option>
+      <option value="deepseek">DeepSeek（便宜，中文好，推荐起步）</option>
+      <option value="openai">OpenAI</option>
+      <option value="moonshot">Moonshot / Kimi</option>
+      <option value="dashscope">阿里云百炼（通义）</option>
+      <option value="ollama">本地 Ollama（免费，需自己跑）</option>
+    </select>
+    <p class="tip">选完会自动填下面两栏，只需再填 Key。</p>
+
+    <label for="baseUrl">Base URL</label>
+    <input id="baseUrl" placeholder="https://api.deepseek.com/v1">
+    <p class="tip">任何 OpenAI 兼容的 <code>/chat/completions</code> 端点都行。注意要带 <code>/v1</code>。</p>
+
+    <div class="row">
+      <div>
+        <label for="model">模型</label>
+        <input id="model" placeholder="deepseek-chat">
+      </div>
+      <div>
+        <label for="apiKey">API Key</label>
+        <input id="apiKey" type="password" placeholder="sk-…">
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label for="temperature">Temperature</label>
+        <input id="temperature" type="number" step="0.1" min="0" max="2">
+        <p class="tip">0.3 左右合适。求职分析要稳，别调高。</p>
+      </div>
+      <div>
+        <label for="maxTokens">Max tokens</label>
+        <input id="maxTokens" type="number" step="100" min="256" max="8192">
+      </div>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Data</legend>
+    <p class="tip" style="margin-top:0">本地存了什么：</p>
+    <table>
+      <tr><th>键</th><th>内容</th><th>谁能看到</th></tr>
+      <tr><td><code>jds</code></td><td>采集到的 JD</td><td>只有你</td></tr>
+      <tr><td><code>profile</code></td><td>你粘贴的简历（用于诊断）</td><td>只有你 + 你选的模型厂商</td></tr>
+      <tr><td><code>llm</code></td><td>base_url / model / key</td><td>只有你</td></tr>
+    </table>
+    <div class="bar" style="margin-top:13px">
+      <button class="ghost" id="clearProfile">清除简历</button>
+      <button class="ghost" id="clearKey">清除 Key</button>
+    </div>
+  </fieldset>
+
+  <div class="bar">
+    <button id="save">保存</button>
+    <button class="ghost" id="test">测试连接</button>
+    <span id="status"></span>
+  </div>
+</div>
+<script type="module" src="options.js"></script>
+</body>
+</html>

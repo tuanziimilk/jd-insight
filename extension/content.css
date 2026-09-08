@@ -1,0 +1,69 @@
+/* 悬浮按钮与提示条。样式刻意做得低调，别挡住页面内容。 */
+
+.jdc-btn {
+  position: fixed;
+  right: 22px;
+  bottom: 96px;
+  z-index: 2147483000;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border: 1px solid #0d5c73;
+  border-radius: 100px;
+  background: #0d5c73;
+  color: #eaf4f7;
+  font: 500 13px/1.2 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  cursor: pointer;
+  box-shadow: 0 6px 20px -8px rgba(0, 0, 0, 0.5);
+  transition: transform 0.12s, background 0.12s;
+}
+
+.jdc-btn:hover {
+  transform: translateY(-1px);
+  background: #0f6c86;
+}
+
+.jdc-btn:active {
+  transform: translateY(0);
+}
+
+.jdc-btn.jdc-saved {
+  background: #1c6b4f;
+  border-color: #1c6b4f;
+}
+
+.jdc-plus {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.jdc-toast {
+  position: fixed;
+  right: 22px;
+  bottom: 150px;
+  z-index: 2147483001;
+  max-width: 320px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  border-left: 3px solid #6fbcd1;
+  background: #101a1f;
+  color: #e6edf1;
+  font: 400 13px/1.5 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  box-shadow: 0 10px 28px -12px rgba(0, 0, 0, 0.6);
+}
+
+.jdc-toast.jdc-ok {
+  border-left-color: #4fb08a;
+}
+
+.jdc-toast.jdc-warn {
+  border-left-color: #d9a441;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jdc-btn {
+    transition: none;
+  }
+}
