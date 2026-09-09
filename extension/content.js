@@ -1,4 +1,14 @@
-/* JD 采集器 · 内容脚本  v1.6
+/* JD 采集器 · 内容脚本  v1.6.1
+ *
+ * v1.6.1（2026-09-10）：把「为什么没还原」说给人看，并修掉一个会把
+ *   还原结果误判成冲突的 bug。
+ *   - 薪资待补时 toast 直接带上原因（模块没加载 / 样本不够 / 映射不可信…）。
+ *     原来只写进 console.warn —— 而内容脚本跑在隔离世界，那行日志在页面
+ *     控制台里根本看不到，实测抓取成功时一条 [jd-insight] 都读不到。
+ *     「去控制台看日志」这个排查路径不成立，所以原因必须进界面。
+ *   - meta 交叉校验只在独立详情页做。列表页的 meta 描述的是整页搜索结果，
+ *     跟当前打开的岗位无关，拿它校验必然对不上、把好数据判成冲突。
+ *   - 按钮上带 data-v，排查时不用猜浏览器里跑的是哪个构建。
  *
  * v1.6（2026-09-09）：还原被私有区字体挡住的薪资数字（lib/glyphmap.js）。
  *   用户在明确知道风险后要求做：「解 PUA 码位到数字的映射，无论如何，处理一下」。
@@ -171,6 +181,10 @@
   /* 本页的解码器。整页只推导一次并缓存：推导要渲染 20 个字形，
    * 每存一条 JD 都重算是纯浪费。null = 还没算过，false = 算过但不可信。 */
   let decoder = undefined;
+  /* 还原失败的原因。要显示在 toast 里，不是塞进 console——
+   * 实测内容脚本跑在隔离世界，console 输出在页面控制台里根本看不到，
+   * 「去控制台看那行日志」这个排查建议本身就不成立。 */
+  let glyphNote = "";
 
   /** 一条解码后的薪资文本像不像真的。
    *
@@ -207,16 +221,32 @@
   function getDecoder() {
     if (decoder !== undefined) return decoder;
     decoder = null;
-    if (!GLYPH || !SAL) return decoder;
+    if (!GLYPH) {
+      glyphNote = "字形还原模块没加载（改过 manifest，要在 chrome://extensions 重载插件再刷新页面）";
+      return decoder;
+    }
+    if (!SAL) {
+      glyphNote = "薪资解析模块没加载";
+      return decoder;
+    }
     const { samples, fontFamily } = salarySamples();
-    if (!samples.length) return decoder; // 这页没有私有区字符，不需要还原
+    if (!samples.length) {
+      // 「这页没有私有区字符」不是失败——独立详情页的薪资本来就是明文。
+      // 所以不写 note，否则详情页上真的抓不到薪资时会显示一句误导的原因。
+      return decoder;
+    }
     const r = GLYPH.deriveDigitMap({ samples, fontFamily, isPlausible: plausibleSalary });
     if (!r.ok) {
       // 失败就是失败，不降级成「用一个勉强的映射」。
+      glyphNote = r.reason;
       console.warn("[jd-insight] 字形还原不可用：" + r.reason, r.stats || "");
       return decoder;
     }
-    console.info("[jd-insight] 字形还原就绪：" + r.stats.mapping + "（样本 " + r.stats.plausible + "/" + r.stats.samples + " 条合理）");
+    glyphNote = "";
+    console.info(
+      "[jd-insight] 字形还原就绪：" + r.stats.mapping +
+        "（样本 " + r.stats.plausible + "/" + r.stats.samples + " 条合理）"
+    );
     decoder = (t) => GLYPH.decodeWith(t, r.map);
     decoder.stats = r.stats;
     return decoder;
@@ -696,7 +726,10 @@
       // 和 meta 交叉校验。两边都有却对不上，说明至少一个抓错了对象
       // （最可能是抓到了推荐位里别的岗位）——这种情况宁可留空让人补，
       //  也不要在薪资这种字段上二选一赌一个。
-      if (metaCand.length === 1 && metaCand[0] !== domVal) {
+      // ⚠️ 只在独立详情页做这个交叉校验。列表页的 meta 描述的是整页搜索结果，
+      // 跟当前打开的这条岗位无关——拿它去校验必然对不上，会把好数据判成冲突。
+      const onDetailPage = JOB_ID_RE.test(location.pathname);
+      if (onDetailPage && metaCand.length === 1 && metaCand[0] !== domVal) {
         return {
           raw: "",
           source: "",
@@ -879,7 +912,7 @@
         const sal = rec.salaryConflict
           ? "　薪资待补（页面上两处对不上：" + rec.salaryConflict + "）"
           : rec.salaryBlocked
-          ? "　薪资待补"
+          ? "　薪资待补" + (glyphNote ? "（" + glyphNote + "）" : "")
           : "　" + rec.salary + (rec.salarySource ? "（" + rec.salarySource + "）" : "");
         toast(
           (isNew ? "已存 · " : "已更新 · ") + label + co + sal + "　共 " + jds.length + " 条",
@@ -897,6 +930,9 @@
   btn.className = "jdc-btn";
   btn.type = "button";
   btn.title = "存下当前打开的这条 JD（Alt+S）";
+  // 版本打进 DOM：排查时能直接确认浏览器里跑的是哪个构建，
+  // 不用靠猜「到底重载过没有」。
+  btn.dataset.v = "1.6.1";
   btn.innerHTML = '<span class="jdc-plus">+</span><span class="jdc-label">存 JD</span>';
   btn.addEventListener("click", (e) => {
     e.preventDefault();
