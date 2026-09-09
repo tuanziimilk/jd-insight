@@ -3,66 +3,42 @@
 <head>
 <meta charset="utf-8">
 <title>JD 采集器</title>
+<link rel="stylesheet" href="theme.css">
 <style>
-  :root {
-    --paper: #eef1f4;
-    --card: #fff;
-    --ink: #131b23;
-    --muted: #62717e;
-    --rule: #c8d2da;
-    --acc: #0d5c73;
-    --ok: #1c6b4f;
-    --stop: #96282e;
-  }
-  * { box-sizing: border-box; }
   body {
     width: 330px;
     margin: 0;
     padding: 14px;
     background: var(--paper);
     color: var(--ink);
-    font: 13px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    font: 13px/1.65 var(--sans);
   }
-  h1 {
-    margin: 0 0 2px;
-    font-size: 14px;
-    font-weight: 700;
-    letter-spacing: .01em;
-  }
+  h1 { margin: 0 0 2px; font-size: 14px; font-weight: 700; letter-spacing: .01em; }
   .sub { margin: 0 0 12px; font-size: 11.5px; color: var(--muted); }
   .count {
     display: flex;
     align-items: baseline;
     gap: 7px;
-    padding: 10px 12px;
-    background: var(--card);
+    padding: 9px 11px;
+    background: var(--sunk);
     border: 1px solid var(--rule);
-    border-radius: 5px;
+    border-radius: 2px;
     margin-bottom: 10px;
   }
   .count b { font-size: 24px; font-weight: 700; color: var(--acc); font-variant-numeric: tabular-nums; }
   .count span { font-size: 11.5px; color: var(--muted); }
   .row { display: flex; gap: 7px; margin-bottom: 8px; }
-  button {
-    flex: 1;
-    padding: 8px 10px;
-    border: 1px solid var(--acc);
-    border-radius: 5px;
-    background: var(--acc);
-    color: #fff;
-    font: 500 12.5px/1.2 inherit;
-    cursor: pointer;
-  }
-  button.ghost { background: var(--card); color: var(--acc); }
-  button.danger { background: var(--card); color: var(--stop); border-color: var(--stop); flex: 0 0 74px; }
-  button:disabled { opacity: .45; cursor: not-allowed; }
-  button:hover:not(:disabled) { filter: brightness(1.08); }
+  /* 按钮的颜色/边框/hover 都在 theme.css，这里只管布局。
+     原来每个按钮都是实心绿 —— 一排三个实心绿会把强调色用废，
+     现在默认是线框，只有「打开情报台」那一个用 .primary。 */
+  button { flex: 1; padding: 8px 10px; font-size: 11.5px; }
+  button.danger { flex: 0 0 66px; }
   .list {
     max-height: 190px;
     overflow-y: auto;
     border: 1px solid var(--rule);
-    border-radius: 5px;
-    background: var(--card);
+    border-radius: 2px;
+    background: var(--sunk);
   }
   .item {
     padding: 8px 11px;
@@ -70,17 +46,23 @@
     font-size: 12px;
   }
   .item:last-child { border-bottom: 0; }
-  .item .t { font-weight: 600; }
-  .item .m { color: var(--muted); font-size: 11px; }
+  .item .t { font-weight: 600; color: var(--ink); }
+  .item .m { color: var(--ink2); font: 11px/1.5 var(--mono); }
   .item .warn { color: var(--stop); }
   .tags { display: flex; gap: 5px; margin-top: 5px; }
   .chip {
-    flex: 0 0 auto; padding: 1px 7px; font-size: 10.5px; line-height: 1.5;
-    border: 1px dashed var(--rule); border-radius: 100px;
+    flex: 0 0 auto; padding: 1px 6px; font: 10.5px/1.5 var(--mono);
+    border: 1px dashed var(--rule-strong); border-radius: 2px;
     background: transparent; color: var(--muted); cursor: pointer;
   }
-  .chip.on { border-style: solid; border-color: var(--acc); color: var(--acc); }
+  .chip.on { border-style: solid; border-color: var(--acc-dim); color: var(--acc); background: var(--acc-soft); }
   .chip:hover { border-color: var(--acc); }
+  .salinput {
+    flex: 0 0 auto; width: 106px; padding: 1px 6px; font: 10.5px/1.5 var(--mono);
+    border: 1px solid var(--acc); border-radius: 2px;
+    background: var(--sunk); color: var(--ink);
+  }
+  .salinput:focus { outline: none; }
   .empty { padding: 18px 12px; text-align: center; color: var(--muted); font-size: 12px; }
   .tip {
     margin: 10px 0 0;
@@ -90,12 +72,8 @@
     line-height: 1.55;
     color: var(--muted);
   }
-  code {
-    background: #dde5ea;
-    padding: 1px 4px;
-    border-radius: 3px;
-    font-size: 10.5px;
-  }
+  /* 原来硬编码了浅灰底（#dde5ea），在近黑背景上是一块白斑。走 theme.css。 */
+  code { font-size: 10.5px; }
 </style>
 </head>
 <body>
@@ -127,6 +105,9 @@
     然后运行 <code>99-脚本/analyze_jd.py</code> 出汇总报告。
   </p>
 
-  <script src="popup.js"></script>
+  <!-- 守卫必须排在前面且是普通脚本：这样 popup.js（module）的加载/求值错误
+       也能被它的 window.onerror 捕获，界面上会看到原因而不是"没数据" -->
+  <script src="popup-guard.js"></script>
+  <script type="module" src="popup.js"></script>
 </body>
 </html>

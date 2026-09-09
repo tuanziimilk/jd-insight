@@ -3,28 +3,14 @@
 <head>
 <meta charset="utf-8">
 <title>JD Insight · 求职情报台</title>
+<link rel="stylesheet" href="theme.css">
 <style>
-  :root {
-    --paper: #eef1f4; --card: #fff; --sunk: #dde5ea;
-    --ink: #131b23; --ink2: #3e4c58; --muted: #62717e; --rule: #c8d2da;
-    --acc: #0d5c73; --acc-soft: #d3e6ec;
-    --ok: #1c6b4f; --warn: #91600d; --warn-soft: #f6ecd6; --stop: #96282e;
-    --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --paper: #0e1418; --card: #161e25; --sunk: #121a20;
-      --ink: #e4eaee; --ink2: #b9c6cf; --muted: #8b9aa6; --rule: #2b353e;
-      --acc: #6fbcd1; --acc-soft: #16323b;
-      --ok: #58b491; --warn: #d7a349; --warn-soft: #322718; --stop: #e0807c;
-    }
-  }
-  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html, body { height: 100%; }
   body {
     margin: 0; display: flex; flex-direction: column;
     background: var(--paper); color: var(--ink);
-    font: 13.5px/1.65 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    font: 13.5px/1.65 var(--sans);
   }
 
   header {
@@ -50,7 +36,18 @@
   }
   #scope:focus { outline: none; border-color: var(--acc); }
 
+  .tabs {
+    flex: none; display: flex; gap: 0; border-bottom: 1px solid var(--rule); background: var(--card);
+  }
+  .tab-btn {
+    border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted);
+    padding: 7px 13px; cursor: pointer; font: 500 12px var(--sans);
+  }
+  .tab-btn:hover { color: var(--ink2); }
+  .tab-btn.active { color: var(--acc); border-bottom-color: var(--acc); }
+
   #log { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+  #funnelTab { flex: 1; overflow-y: auto; }
 
   .msg { max-width: 100%; }
   .msg.u { align-self: flex-end; max-width: 88%; }
@@ -64,7 +61,8 @@
     margin-bottom: 4px; display: flex; gap: 7px; flex-wrap: wrap; align-items: center;
   }
   .tag {
-    padding: 1px 6px; border-radius: 3px; background: var(--sunk); color: var(--ink2);
+    padding: 1px 5px; border-radius: 2px; background: var(--sunk); color: var(--ink2);
+    font-family: var(--mono); font-size: 10px;
   }
   .tag.rule { background: var(--acc-soft); color: var(--acc); }
   .tag.model { background: var(--warn-soft); color: var(--warn); }
@@ -91,7 +89,7 @@
     color: var(--muted);
   }
 
-  .sys {
+    .sys {
     align-self: center; text-align: center; font-size: 11.5px; color: var(--muted);
     background: var(--sunk); border-radius: 100px; padding: 3px 12px;
   }
@@ -99,13 +97,13 @@
   /* 槽位追问卡片 */
   .slot {
     background: var(--card); border: 1px solid var(--warn); border-left-width: 3px;
-    border-radius: 6px; padding: 11px;
+    border-radius: 2px; padding: 11px;
   }
   .slot h4 { margin: 0 0 5px; font-size: 12.5px; color: var(--warn); }
   .slot p { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
   .slot textarea {
     width: 100%; min-height: 90px; resize: vertical; padding: 7px;
-    border: 1px solid var(--rule); border-radius: 5px; background: var(--paper);
+    border: 1px solid var(--rule-strong); border-radius: 2px; background: var(--sunk);
     color: var(--ink); font: 12px/1.5 inherit;
   }
   .slot .row { display: flex; gap: 6px; margin-top: 7px; }
@@ -114,8 +112,8 @@
   /* 快捷问题 */
   #quick { flex: none; padding: 0 12px 8px; display: flex; gap: 6px; flex-wrap: wrap; }
   #quick button {
-    font-size: 11.5px; padding: 4px 9px; border-radius: 100px;
-    border: 1px solid var(--rule); background: var(--card); color: var(--ink2); cursor: pointer;
+    font: 11.5px/1.3 var(--sans); padding: 4px 8px; border-radius: 2px;
+    border: 1px solid var(--rule-strong); background: transparent; color: var(--ink2); cursor: pointer;
   }
   #quick button:hover { border-color: var(--acc); color: var(--acc); }
 
@@ -123,19 +121,13 @@
   .inrow { display: flex; gap: 7px; align-items: flex-end; }
   #q {
     flex: 1; min-height: 38px; max-height: 130px; resize: none; padding: 8px 10px;
-    border: 1px solid var(--rule); border-radius: 6px; background: var(--paper);
-    color: var(--ink); font: 13px/1.5 inherit;
+    border: 1px solid var(--rule-strong); border-radius: 2px; background: var(--sunk);
+    color: var(--ink); font: 13px/1.5 var(--sans);
   }
   #q:focus { outline: none; border-color: var(--acc); }
-  button.primary {
-    border: 1px solid var(--acc); background: var(--acc); color: #fff;
-    padding: 8px 13px; border-radius: 6px; cursor: pointer; font: 500 13px inherit;
-  }
-  button.ghost {
-    border: 1px solid var(--rule); background: var(--card); color: var(--ink2);
-    padding: 6px 11px; border-radius: 5px; cursor: pointer; font: 500 12px inherit;
-  }
-  button:disabled { opacity: .45; cursor: not-allowed; }
+  /* primary / ghost / disabled 都在 theme.css 里，这儿只调尺寸 */
+  button.primary { padding: 8px 13px; }
+  button.ghost { color: var(--ink2); border-color: var(--rule-strong); }
   .hint { margin: 6px 0 0; font-size: 10.5px; color: var(--muted); }
 
   .dots::after {
@@ -156,13 +148,20 @@
       <option value="🔥">只看 🔥 想投</option>
       <option value="👀">只看 👀 观察</option>
       <option value="已投">只看已投</option>
-      <option value="面试中">只看面试中</option>
+      <option value="进面">只看进面</option>
+      <option value="复面">只看复面</option>
     </select>
     <button class="ico" id="newchat" title="新会话">⟳</button>
     <button class="ico" id="settings" title="设置">⚙</button>
   </header>
 
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="chat">对话</button>
+    <button class="tab-btn" data-tab="funnel">漏斗</button>
+  </div>
+
   <div id="log"></div>
+  <div id="funnelTab" hidden></div>
 
   <div id="quick">
     <button data-q="这批 JD 里最高频的能力要求是什么？按覆盖率排">高频要求</button>

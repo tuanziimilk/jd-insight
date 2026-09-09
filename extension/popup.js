@@ -4,28 +4,67 @@
  */
 "use strict";
 
+import { STATUS_CYCLE, FAIL_BUCKETS, pushStatus, isTerminal } from "./lib/pipeline.js";
+import { parseSalary, formatSalary } from "./lib/salary.js";
+
 const $ = (id) => document.getElementById(id);
+
+/** 取多行文本的第一行。原来定义在 toBlock() 内部，render() 里引用不到
+ *  （会 ReferenceError）——提到模块作用域，两处共用一份。 */
+const firstLine = (s) => (s || "").split("\n")[0].trim();
 let CACHE = [];
 
 /* 打标：两个维度，点击循环切换。
  * 刻意不在采集时问——采集要一次点击不打断浏览，标签是回头整理时才需要的东西。 */
 const INTENT_CYCLE = ["", "🔥", "👀", "❌"];
 const INTENT_LABEL = { "": "未定", "🔥": "想投", "👀": "观察", "❌": "不考虑" };
-const STATUS_CYCLE = ["", "已投", "面试中", "已挂", "已拒"];
 
 function nextIn(cycle, cur) {
   const i = cycle.indexOf(cur || "");
   return cycle[(i + 1) % cycle.length];
 }
 
+/** 补录薪资。一次把三个相关字段一起写，避免出现"有 salary 但 salaryParsed 是旧值"
+ *  这种自相矛盾的状态。解析不出来时保留原文、salaryParsed 置 null——
+ *  留着原文比丢掉好，至少人还能看；但绝不塞一个猜出来的数字。 */
+async function setSalary(key, text) {
+  const { jds = [] } = await chrome.storage.local.get({ jds: [] });
+  const i = jds.findIndex((x) => x.key === key);
+  if (i < 0) return;
+  const t = String(text || "").trim();
+  const p = t ? parseSalary(t) : null;
+  jds[i] = {
+    ...jds[i],
+    salary: t,
+    salarySource: t ? "手填" : "",
+    salaryParsed: p && p.parsed ? p : null,
+    salaryBlocked: !t,
+    salaryPending: false,
+  };
+  await chrome.storage.local.set({ jds });
+  CACHE = jds;
+  render();
+}
+
 async function setField(key, field, value) {
   const { jds = [] } = await chrome.storage.local.get({ jds: [] });
   const i = jds.findIndex((x) => x.key === key);
   if (i < 0) return;
-  jds[i][field] = value;
+  // 状态走 pushStatus，会带上时间戳写进 statusHistory
+  jds[i] = field === "status" ? pushStatus(jds[i], value) : { ...jds[i], [field]: value };
   await chrome.storage.local.set({ jds });
   CACHE = jds;
   render();
+}
+
+/** 终止态要问一下挂在哪——不分桶就不知道该改什么 */
+async function askFailReason(key) {
+  const list = FAIL_BUCKETS.map((b, i) => (i + 1) + ". " + b).join("\n");
+  const v = prompt("挂在哪一环？填序号或直接写（可留空跳过）：\n\n" + list, "");
+  if (v == null) return;
+  const n = parseInt(v.trim(), 10);
+  const reason = n >= 1 && n <= FAIL_BUCKETS.length ? FAIL_BUCKETS[n - 1] : v.trim();
+  if (reason) await setField(key, "failReason", reason);
 }
 
 const SITE_NAME = {
@@ -43,7 +82,6 @@ function siteLabel(host) {
 
 /** 单条 JD → 文本块 */
 function toBlock(r) {
-  const firstLine = (s) => (s || "").split("\n")[0].trim();
   const lines = [];
   if (r.company) lines.push("#公司: " + firstLine(r.company));
   if (r.title) lines.push("#岗位: " + firstLine(r.title));
@@ -52,6 +90,10 @@ function toBlock(r) {
   if (r.tagline) lines.push("#标签: " + r.tagline.replace(/\n+/g, " / "));
   if (r.intent) lines.push("#意向: " + (INTENT_LABEL[r.intent] || r.intent));
   if (r.status) lines.push("#状态: " + r.status);
+  if (r.failReason) lines.push("#归因: " + r.failReason);
+  if (r.statusHistory && r.statusHistory.length) {
+    lines.push("#轨迹: " + r.statusHistory.map((h) => (h.status || "采集") + "@" + h.at).join(" → "));
+  }
   if (r.url) lines.push("#链接: " + r.url);
   if (r.ts) lines.push("#采集时间: " + r.ts);
   lines.push("");
@@ -84,6 +126,9 @@ function download(text, filename, mime) {
 function render() {
   $("n").textContent = CACHE.length;
   const list = $("list");
+  // 告诉 popup-guard.js "我确实跑到这儿了"。
+  // 不打这个标记的话，真的 0 条时界面文案和"脚本挂了"完全一样，守卫会误报。
+  list.dataset.rendered = "1";
   const has = CACHE.length > 0;
   ["export", "copy", "json", "clear"].forEach((id) => ($(id).disabled = !has));
 
@@ -103,8 +148,10 @@ function render() {
       const m = document.createElement("div");
       m.className = "m";
       const bits = [siteLabel(r.site)];
-      if (r.salary) bits.push(r.salary.split("\n")[0]);
-      if (r.company) bits.push(r.company.split("\n")[0].slice(0, 14));
+      // 薪资不放这行了——下面那个可点击的 chip 已经在显示它，而且显示的是
+      // 结构化之后的格式。两处显示同一个值，改了一处忘了另一处就会自相矛盾。
+      // 公司名抓不到时明确写出来，不是留空：留空看起来像"这家公司没名字"。
+      bits.push(r.company ? r.company.split("\n")[0].slice(0, 14) : "公司名未抓到");
       m.textContent = bits.join(" · ");
       d.appendChild(t);
       d.appendChild(m);
@@ -126,8 +173,56 @@ function render() {
       const bs = document.createElement("button");
       bs.className = "chip" + (r.status ? " on" : "");
       bs.textContent = r.status || "＋状态";
-      bs.title = "点击切换：未投 → 已投 → 面试中 → 已挂 → 已拒";
-      bs.onclick = () => setField(r.key, "status", nextIn(STATUS_CYCLE, r.status));
+      bs.title = "点击切换：想投 → 已投 → 进面 → 复面 → offer → 已挂 → 已拒";
+      bs.onclick = async () => {
+        const next = nextIn(STATUS_CYCLE, r.status);
+        await setField(r.key, "status", next);
+        if (isTerminal(next) && !r.failReason) await askFailReason(r.key);
+      };
+      if (r.failReason) {
+        const bf = document.createElement("button");
+        bf.className = "chip on";
+        bf.textContent = "↯ " + r.failReason;
+        bf.title = "挂掉原因，点击修改";
+        bf.onclick = () => askFailReason(r.key);
+        tags.appendChild(bf);
+      }
+      // 薪资 chip。没抓到就是"＋薪资"，点一下原地变输入框——
+      // 采集时不打断，回头在这里一次性把待补的几条填完。
+      const bsal = document.createElement("button");
+      const hasSal = !!(r.salary && r.salary.trim());
+      bsal.className = "chip" + (hasSal ? " on" : "");
+      bsal.textContent = hasSal
+        ? r.salaryParsed
+          ? formatSalary(r.salaryParsed)
+          : firstLine(r.salary)
+        : "＋薪资";
+      bsal.title = hasSal
+        ? "薪资来源：" + (r.salarySource || "未记录") + "　点击修改"
+        : "页面上显示多少就填多少，点击输入";
+      bsal.onclick = () => {
+        const inp = document.createElement("input");
+        inp.className = "salinput";
+        inp.value = hasSal ? r.salary : "";
+        inp.placeholder = "如 25-40K·15薪";
+        const commit = () => {
+          if (inp.dataset.done) return;
+          inp.dataset.done = "1";
+          setSalary(r.key, inp.value);
+        };
+        inp.onkeydown = (e) => {
+          if (e.key === "Enter") commit();
+          if (e.key === "Escape") {
+            inp.dataset.done = "1";
+            render();
+          }
+        };
+        inp.onblur = commit;
+        bsal.replaceWith(inp);
+        inp.focus();
+        inp.select();
+      };
+      tags.appendChild(bsal);
       tags.appendChild(bi);
       tags.appendChild(bs);
       d.appendChild(tags);

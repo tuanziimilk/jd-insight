@@ -8,6 +8,7 @@
  * 另外：统计类问题走确定性计算，不进模型（省钱、可复现、不会算错）。
  */
 import { retrieve, buildContext, stats, coverage } from "./lib/retrieve.js";
+import { renderFunnelTab } from "./lib/funnelUI.js";
 import {
   chatStream, chatOnce, getSettings, hasKey, explainError, fmtCost, getUsageTotal,
 } from "./lib/llm.js";
@@ -20,7 +21,7 @@ const log = $("log");
 
 let ALL = [];          // 全部采集到的 JD
 let JDS = [];          // 当前筛选范围内的（回答只依据这些）
-let SCOPE = "";        // "" | 🔥 | 👀 | 已投 | 面试中
+let SCOPE = "";        // "" | 🔥 | 👀 | 已投 | 进面 | 复面（须与 pipeline.js 的 Status 真实取值一致）
 let PROFILE = {};
 let HISTORY = [];      // [{role, content}] 只存文本，供多轮
 let BUSY = false;
@@ -114,7 +115,31 @@ function applyScope() {
     : ALL.filter((r) => r.intent === SCOPE || r.status === SCOPE);
   $("count").textContent = JDS.length + (SCOPE ? " / " + ALL.length : "") + " 条 JD";
   $("count").title = SCOPE ? "已按「" + SCOPE + "」筛选" : "全部";
+  if (TAB === "funnel") renderFunnelTab($("funnelTab"), JDS);
 }
+
+/* ---------------- 标签页：对话 / 漏斗 ---------------- */
+let TAB = "chat";
+
+function switchTab(tab) {
+  TAB = tab;
+  document.querySelectorAll(".tab-btn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.tab === tab);
+  });
+  const chat = tab === "chat";
+  $("log").hidden = !chat;
+  $("quick").hidden = !chat;
+  document.querySelector("footer").hidden = !chat;
+  $("funnelTab").hidden = chat;
+  // 漏斗用当前筛选后的 JDS，和头部那个「N / M 条 JD」保持同一个口径，
+  // 否则筛了范围却看到全量漏斗，数字对不上会让人以为算错了。
+  if (!chat) renderFunnelTab($("funnelTab"), JDS);
+}
+
+document.querySelector(".tabs").addEventListener("click", (e) => {
+  const tab = e.target.dataset && e.target.dataset.tab;
+  if (tab) switchTab(tab);
+});
 
 /** 在回答下方挂一行用量。PRD 里「效率成本」这层指标要看得见才有用 */
 function addUsage(bubble, res) {
