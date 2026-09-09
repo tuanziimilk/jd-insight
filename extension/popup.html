@@ -5,79 +5,110 @@
 <title>JD 采集器</title>
 <link rel="stylesheet" href="theme.css">
 <style>
+  /* 配色 token 全在 theme.css（Vercel/Geist，近乎无彩）。
+     这里只管 popup 自己的布局和字号。 */
   body {
     width: 330px;
     margin: 0;
     padding: 14px;
     background: var(--paper);
     color: var(--ink);
-    font: 13px/1.65 var(--sans);
+    font: 13px/1.6 var(--sans);
   }
-  h1 { margin: 0 0 2px; font-size: 14px; font-weight: 700; letter-spacing: .01em; }
-  .sub { margin: 0 0 12px; font-size: 11.5px; color: var(--muted); }
+  h1 { margin: 0 0 3px; font-size: 14.5px; font-weight: 600; letter-spacing: -.02em; }
+  .sub { margin: 0 0 12px; font-size: 11.5px; color: var(--ink2); line-height: 1.5; }
+
+  /* 计数。C 案的做法：沉底方框 + 大号等宽数字 + 等宽小标。
+     数字是这一屏唯一的"大字"，所以它不需要颜色也能当锚点。 */
   .count {
     display: flex;
     align-items: baseline;
-    gap: 7px;
-    padding: 9px 11px;
+    gap: 8px;
+    padding: 11px 13px;
     background: var(--sunk);
     border: 1px solid var(--rule);
-    border-radius: 2px;
-    margin-bottom: 10px;
+    border-radius: var(--r);
+    margin-bottom: 9px;
   }
-  .count b { font-size: 24px; font-weight: 700; color: var(--acc); font-variant-numeric: tabular-nums; }
-  .count span { font-size: 11.5px; color: var(--muted); }
+  .count b {
+    font: 600 30px/1 var(--mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.02em;
+  }
+  .count span { font: 11px/1 var(--mono); color: var(--muted); }
+
+  /* ── 按钮分三层，按"多久用一次"排，不按"是不是导出"排 ──
+     一层：打开情报台，整行实黑，这一屏唯一的主动作。
+     二层：三个导出并排，小一号、线框、安静。它们是偶尔用的。
+     三层：清空 —— 从按钮组里拿出去，放到最底下、只有文字。
+     ⚠️ 最后这条是有来由的：清空不可逆，而它原来和「导出 JSON」
+     并排、同样大小。这跟列表行里「删除」不能长得像「切换意向」
+     是同一个道理，那处已经修过一次。 */
   .row { display: flex; gap: 7px; margin-bottom: 8px; }
-  /* 按钮的颜色/边框/hover 都在 theme.css，这里只管布局。
-     原来每个按钮都是实心绿 —— 一排三个实心绿会把强调色用废，
-     现在默认是线框，只有「打开情报台」那一个用 .primary。 */
-  button { flex: 1; padding: 8px 10px; font-size: 11.5px; }
-  button.danger { flex: 0 0 66px; }
+  .row button { flex: 1; }
+  .row.mini { gap: 6px; margin-bottom: 11px; }
+  .row.mini button {
+    padding: 7px 6px;
+    font-size: 11px;
+    color: var(--ink2);
+    border-color: var(--rule);
+  }
+  .row.mini button:hover:not(:disabled) { color: var(--ink); border-color: var(--acc); }
+
   .list {
-    max-height: 190px;
+    max-height: 200px;
     overflow-y: auto;
     border: 1px solid var(--rule);
-    border-radius: 2px;
-    background: var(--sunk);
+    border-radius: var(--r);
+    background: var(--card);
   }
-  .item {
-    padding: 8px 11px;
-    border-bottom: 1px solid var(--rule);
-    font-size: 12px;
-  }
-  .item:last-child { border-bottom: 0; }
-  .item .t { font-weight: 600; color: var(--ink); }
-  .item .m { color: var(--ink2); font: 11px/1.5 var(--mono); }
-  .item .warn { color: var(--stop); }
-  .tags { display: flex; gap: 5px; margin-top: 5px; }
+  .item { padding: 10px 12px; font-size: 12px; }
+  .item + .item { border-top: 1px solid var(--rule); }
+  .item .t { font-weight: 600; color: var(--ink); font-size: 12.5px; line-height: 1.4; }
+  .item .m { color: var(--ink2); font: 11px/1.45 var(--mono); }
+  .item .warn { color: var(--warn); }
+  .tags { display: flex; gap: 6px; margin-top: 6px; align-items: center; }
   .chip {
-    flex: 0 0 auto; padding: 1px 6px; font: 10.5px/1.5 var(--mono);
-    border: 1px dashed var(--rule-strong); border-radius: 2px;
-    background: transparent; color: var(--muted); cursor: pointer;
+    flex: 0 0 auto; padding: 4px 7px; font: 500 10.5px/1 var(--mono);
+    border: 1px solid var(--rule); border-radius: var(--r-sm);
+    background: var(--card); color: var(--ink2); cursor: pointer;
   }
-  .chip.on { border-style: solid; border-color: var(--acc-dim); color: var(--acc); background: var(--acc-soft); }
+  /* 选中态用反色，不用彩色底 —— 无彩配色里这是最强的"开着"信号 */
+  .chip.on { background: var(--acc); border-color: var(--acc); color: var(--acc-ink); }
   .chip:hover { border-color: var(--acc); }
-  /* 删除推到最右、用红色描边。它是这一行唯一不可逆的操作，
-     不能和「切换意向」这种随便点的 chip 长得一样。 */
-  .chip.del { margin-left: auto; color: var(--stop); border-color: var(--stop); border-style: solid; }
+  /* 删除推到最右，是这一行唯一带颜色的东西。
+     它不可逆，不能和「切换意向」这种随便点的 chip 长得一样。 */
+  .chip.del { margin-left: auto; color: var(--stop); border-color: var(--stop-soft); }
   .chip.del:hover { background: var(--stop); color: #fff; border-color: var(--stop); }
   .salinput {
-    flex: 0 0 auto; width: 106px; padding: 1px 6px; font: 10.5px/1.5 var(--mono);
-    border: 1px solid var(--acc); border-radius: 2px;
-    background: var(--sunk); color: var(--ink);
+    flex: 0 0 auto; width: 108px; padding: 3px 6px; font: 10.5px/1.5 var(--mono);
+    border: 1px solid var(--acc); border-radius: var(--r-sm);
+    background: var(--card); color: var(--ink);
   }
-  .salinput:focus { outline: none; }
-  .empty { padding: 18px 12px; text-align: center; color: var(--muted); font-size: 12px; }
+  .salinput:focus { outline: none; box-shadow: 0 0 0 3px var(--acc-soft); }
+  .empty { padding: 22px 12px; text-align: center; color: var(--muted); font-size: 12px; }
+
   .tip {
-    margin: 10px 0 0;
-    padding-top: 9px;
+    margin: 11px 0 0;
+    padding-top: 10px;
     border-top: 1px solid var(--rule);
-    font-size: 11px;
-    line-height: 1.55;
+    font: 10.5px/1.6 var(--mono);
     color: var(--muted);
   }
-  /* 原来硬编码了浅灰底（#dde5ea），在近黑背景上是一块白斑。走 theme.css。 */
-  code { font-size: 10.5px; }
+  .tip code { font-size: 10.5px; border: 0; padding: 0 2px; }
+
+  /* 清空：整行最右、纯文字、只有它带红。刻意离所有按钮很远。 */
+  .destruct { display: flex; justify-content: flex-end; margin-top: 10px; }
+  #clear {
+    padding: 4px 2px;
+    font-size: 11px;
+    background: none;
+    border: 0;
+    color: var(--muted);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  #clear:hover:not(:disabled) { color: var(--stop); }
 </style>
 </head>
 <body>
@@ -85,29 +116,30 @@
   <p class="sub">在岗位详情页点右下角「存 JD」，或按 <code>Alt+S</code></p>
 
   <div class="count"><b id="n">0</b><span>条已存</span></div>
-  <p class="tip" style="margin:-4px 0 9px;border:0;padding:0">
-    点条目下的小标签可切换<b>意向</b>与<b>投递状态</b>，情报台里能按它筛选。
-  </p>
 
   <div class="row">
-    <button id="panel">💬 打开情报台（问它）</button>
+    <button id="panel" class="primary">打开情报台（问它）</button>
   </div>
-  <div class="row">
-    <button id="export">导出 jd_raw.txt</button>
-    <button id="copy" class="ghost">复制全部</button>
-  </div>
-  <div class="row">
-    <button id="json" class="ghost">导出 JSON（备份）</button>
-    <button id="clear" class="danger">清空</button>
+  <div class="row mini">
+    <button id="export">jd_raw.txt</button>
+    <button id="copy">复制全部</button>
+    <button id="json">JSON 备份</button>
   </div>
 
   <div class="list" id="list"><div class="empty">还没有存任何 JD</div></div>
 
   <p class="tip">
+    点条目下的小标签可切换<b>意向</b>与<b>投递状态</b>，情报台里能按它筛选。
+  </p>
+  <p class="tip" style="border:0;padding-top:0;margin-top:6px">
     导出的 <code>jd_raw.txt</code> 放到<br>
     <code>career-knowledgebase/05-资源库/JD原始数据/</code><br>
     然后运行 <code>99-脚本/analyze_jd.py</code> 出汇总报告。
   </p>
+
+  <div class="destruct">
+    <button id="clear">清空全部记录</button>
+  </div>
 
   <!-- 守卫必须排在前面且是普通脚本：这样 popup.js（module）的加载/求值错误
        也能被它的 window.onerror 捕获，界面上会看到原因而不是"没数据" -->

@@ -9,55 +9,90 @@
    ⚠️ content.css 不用这份：它注入到招聘网站的页面里，
    往别人的 :root 上挂变量会污染宿主站样式。那边保持硬编码。
 
-   配色沿用 v2.0 那套（深蓝图底 + 青色主色 + 琥珀/绿/红语义色），
-   跟着系统的浅色/深色偏好切换。
-   ── 历史：中间试过纸张风和两版终端风，都被否掉了。留一句备忘：
-      下次改配色之前先拿到一个具体参照（截图或产品名），
-      不要从"高级""极客"这类形容词直接生成——已经证明不收敛。 */
+   ── 配色：Vercel / Geist（vercel.com）─────────────────────────
+   2026-09-10 定的。**近乎无彩**：白底、#EAEAEA 发丝边、主按钮纯黑，
+   等宽字承担全部数据层（计数、薪资、公司、时间戳），
+   颜色只留给三件事：薪资状态、删除、还原来源。
+
+   为什么是这套：之前试过纸张风、两版终端风、以及三个"加颜色"的方案
+   （Stripe 靛蓝 / GitHub 彩色标签 / FT 数据表），全部被否，原话是
+   "太花哨低端"。四次反馈指向同一件事——**这个项目不要主色**。
+   所以这里 --acc 就是纯黑（深色模式下是纯白），不是某个品牌色。
+
+   ⚠️ 下次改配色之前先拿到一个具体参照（截图或产品名），
+   不要从"高级""极客"这类形容词直接生成——已经证明不收敛。
+   而且加饱和色这条路已经试过四次了，别再试第五次。 */
 
 :root {
-  --paper: #eef1f4;
+  /* 面 */
+  --paper: #ffffff;
   --card: #ffffff;
-  --sunk: #dde5ea;
-  --ink: #131b23;
-  --ink2: #3e4c58;
-  --muted: #62717e;
-  --rule: #c8d2da;
-  --acc: #0d5c73;
-  --acc-soft: #d3e6ec;
-  --acc-bright: #0f6c86;
-  --acc-dim: #0d5c73;
-  --ok: #1c6b4f;
-  --warn: #91600d;
-  --warn-soft: #f6ecd6;
-  --stop: #96282e;
-  --stop-soft: #f1d9d9;
   --card-solid: #ffffff;
-  --rule-strong: #a9b6c0;
-  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
-  --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --sunk: #fafafa;
+
+  /* 字 */
+  --ink: #000000;
+  --ink2: #666666;
+  --muted: #8f8f8f;
+
+  /* 线。两档：默认发丝线用于分区，strong 用于可点击的边界 */
+  --rule: #eaeaea;
+  --rule-strong: #d4d4d4;
+
+  /* 强调 = 纯黑。刻意没有品牌色，见文件头。
+     --acc-ink 是"压在强调色上的字色"，深浅模式下会反过来，
+     不能在页面里写死 #fff。 */
+  --acc: #000000;
+  --acc-ink: #ffffff;
+  --acc-bright: #000000;
+  --acc-dim: #666666;
+  --acc-soft: #f2f2f2;
+
+  /* 语义色。只用在薪资状态 / 删除 / 还原来源上，不做装饰 */
+  --ok: #0f7b40;
+  --ok-soft: #eaf6ef;
+  --warn: #8a5a00;
+  --warn-soft: #fdf5e3;
+  --stop: #c5221f;
+  --stop-soft: #fdeceb;
+
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, "Cascadia Mono", monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", sans-serif;
+
+  /* 圆角。C 案统一 6px —— 原来 popup 用 2px、其它页用 5/6px，三个页面
+     的方框看起来不像一套东西。radius 也做成 token，别再各写一遍。 */
+  --r: 6px;
+  --r-sm: 4px;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper: #0e1418;
-    --card: #161e25;
-    --sunk: #121a20;
-    --ink: #e4eaee;
-    --ink2: #b9c6cf;
-    --muted: #8b9aa6;
-    --rule: #2b353e;
-    --acc: #6fbcd1;
-    --acc-soft: #16323b;
-    --acc-bright: #8ed0e2;
-    --acc-dim: #3f7d8f;
-    --ok: #58b491;
-    --warn: #d7a349;
-    --warn-soft: #322718;
-    --stop: #e0807c;
-    --stop-soft: #33191b;
-    --card-solid: #161e25;
-    --rule-strong: #3c4a55;
+    --paper: #000000;
+    --card: #0a0a0a;
+    --card-solid: #0a0a0a;
+    --sunk: #0a0a0a;
+
+    --ink: #ededed;
+    --ink2: #a1a1a1;
+    --muted: #7d7d7d;
+
+    --rule: #262626;
+    --rule-strong: #3d3d3d;
+
+    /* 深色下强调色翻成白、字色翻成黑 */
+    --acc: #ededed;
+    --acc-ink: #000000;
+    --acc-bright: #ffffff;
+    --acc-dim: #a1a1a1;
+    --acc-soft: #1a1a1a;
+
+    --ok: #4ea96f;
+    --ok-soft: #10231a;
+    --warn: #d9a13c;
+    --warn-soft: #241c0c;
+    --stop: #e5666a;
+    --stop-soft: #2a1213;
   }
 }
 
@@ -70,12 +105,13 @@ body {
 
 /* ── 共用原子（三个页面重复出现的东西放这儿，别再各写一遍）── */
 
-/* 段落标题 */
+/* 段落标题。C 案里小标题一律等宽大写 —— 这是它性格的主要来源之一，
+   不是装饰：它把"标签"和"内容"在字形上彻底分开。 */
 .sec {
-  font: 600 11px/1 var(--mono);
-  letter-spacing: 0.06em;
+  font: 500 10.5px/1 var(--mono);
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--acc);
+  color: var(--muted);
 }
 
 /* 状态标签。
@@ -84,21 +120,24 @@ body {
 .st {
   display: inline-flex;
   align-items: center;
-  font: 600 10.5px/1 var(--mono);
-  letter-spacing: 0.03em;
-  padding: 3px 6px;
-  border: 1px solid currentColor;
-  border-radius: 4px;
+  font: 500 10.5px/1 var(--mono);
+  letter-spacing: 0.02em;
+  padding: 4px 6px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-sm);
   white-space: nowrap;
-  color: var(--muted);
+  color: var(--ink2);
+  background: var(--card);
 }
-.st-ok { color: var(--ok); background: var(--acc-soft); }
-.st-warn { color: var(--warn); background: var(--warn-soft); }
-.st-stop { color: var(--stop); background: var(--stop-soft); }
-.st-info { color: var(--acc); background: var(--acc-soft); }
+.st-ok { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
+.st-warn { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
+.st-stop { color: var(--stop); background: var(--stop-soft); border-color: transparent; }
+/* 中性信息标签不给颜色 —— C 案里"有颜色"本身就是信号，
+   一个纯提示性的标签不该占用它。 */
+.st-info { color: var(--ink2); background: var(--sunk); }
 .st-dim { color: var(--muted); }
 
-/* 数字：等宽 + 表格对齐。数据密集界面里这是最该做对的一处 */
+/* 数字：等宽 + 表格对齐。C 案里这不是可选项——数据层全靠等宽字撑住 */
 .num {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
@@ -107,7 +146,7 @@ body {
 .pane {
   background: var(--card);
   border: 1px solid var(--rule);
-  border-radius: 6px;
+  border-radius: var(--r);
 }
 
 /* ── 表单控件 ─────────────────────────────────────────── */
@@ -116,9 +155,9 @@ select,
 textarea {
   font: 13px/1.5 var(--sans);
   color: var(--ink);
-  background: var(--paper);
-  border: 1px solid var(--rule);
-  border-radius: 5px;
+  background: var(--card);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r);
   padding: 7px 9px;
 }
 input:focus,
@@ -126,6 +165,8 @@ select:focus,
 textarea:focus {
   outline: none;
   border-color: var(--acc);
+  /* 无彩配色下光标位置只能靠这一圈体现，不能只换边框颜色 */
+  box-shadow: 0 0 0 3px var(--acc-soft);
 }
 input:disabled,
 select:disabled,
@@ -134,27 +175,39 @@ textarea:disabled { opacity: 0.5; cursor: not-allowed; }
 
 button {
   font: 500 12.5px/1.2 var(--sans);
-  border: 1px solid var(--acc);
-  background: var(--acc);
-  color: #fff;
-  border-radius: 5px;
+  border: 1px solid var(--rule-strong);
+  background: var(--card);
+  color: var(--ink);
+  border-radius: var(--r);
   padding: 8px 12px;
   cursor: pointer;
 }
-button:hover:not(:disabled) { filter: brightness(1.08); }
-button.ghost { background: var(--card); color: var(--acc); }
-button.primary { background: var(--acc); color: #fff; }
-button.danger { background: var(--card); color: var(--stop); border-color: var(--stop); }
-button:disabled { opacity: 0.45; cursor: not-allowed; }
+/* 默认按钮是线框。实色只给"这一屏唯一的主动作"，
+   一排都实色等于没有主动作。 */
+button.primary {
+  background: var(--acc);
+  border-color: var(--acc);
+  color: var(--acc-ink);
+}
+button.ghost { background: transparent; color: var(--ink2); }
+button.danger { background: var(--card); color: var(--stop); border-color: var(--rule-strong); }
+button:hover:not(:disabled) { border-color: var(--acc); }
+button.primary:hover:not(:disabled) { opacity: 0.85; border-color: var(--acc); }
+button.danger:hover:not(:disabled) { background: var(--stop-soft); border-color: var(--stop); }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+button:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
 
 code {
   font: 12px var(--mono);
   background: var(--sunk);
-  border-radius: 3px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-sm);
   padding: 1px 4px;
 }
 
-a { color: var(--acc); }
+/* 无彩配色下链接不能只靠颜色区分 —— 必须有下划线 */
+a { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
+a:hover { text-decoration-thickness: 2px; }
 
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }

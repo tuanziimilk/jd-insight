@@ -1,4 +1,12 @@
-/* 悬浮按钮与提示条。样式刻意做得低调，别挡住页面内容。 */
+/* 悬浮按钮与提示条。样式刻意做得低调，别挡住页面内容。
+ *
+ * ⚠️ 这里不用 CSS 变量、也没有 :root —— 这份样式注入到招聘网站的页面里，
+ * 往别人的 :root 上挂变量会污染宿主站样式。配色只能硬编码。
+ *
+ * 配色跟着 theme.css 走 Vercel/Geist 那套（近乎无彩，主色是纯黑）。
+ * 改 theme.css 的时候记得同步这里，它们不共享任何东西。
+ * 白色描边必须保留：BOSS 页面深浅底都有（详情页白底、地图区彩色），
+ * 纯黑按钮在深色区只靠投影看不出边界。 */
 
 .jdc-btn {
   position: fixed;
@@ -15,10 +23,10 @@
   /* 比原来大一档：原来 10/16 的内距在 BOSS 那种信息密度的页面上太不显眼，
      而这是整个扩展唯一需要被看见的控件。 */
   padding: 12px 18px;
-  border: 1px solid #0d5c73;
+  border: 1px solid #000;
   border-radius: 100px;
-  background: #0d5c73;
-  color: #eaf4f7;
+  background: #000;
+  color: #fff;
   font: 600 14px/1.2 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
   cursor: grab;
   /* 白色描边：BOSS 的页面底色有深有浅（详情页白底、地图区彩色），
@@ -39,7 +47,7 @@
 
 .jdc-btn:hover:not(.jdc-dragging) {
   transform: translateY(-1px);
-  background: #0f6c86;
+  background: #1f1f1f;
 }
 
 .jdc-btn:active {
@@ -47,8 +55,8 @@
 }
 
 .jdc-btn.jdc-saved {
-  background: #1c6b4f;
-  border-color: #1c6b4f;
+  background: #0f7b40;
+  border-color: #0f7b40;
 }
 
 .jdc-plus {
@@ -65,19 +73,19 @@
   max-width: 320px;
   padding: 10px 14px;
   border-radius: 6px;
-  border-left: 3px solid #6fbcd1;
-  background: #101a1f;
-  color: #e6edf1;
+  border-left: 3px solid #d4d4d4;
+  background: #0a0a0a;
+  color: #ededed;
   font: 400 13px/1.5 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
   box-shadow: 0 10px 28px -12px rgba(0, 0, 0, 0.6);
 }
 
 .jdc-toast.jdc-ok {
-  border-left-color: #4fb08a;
+  border-left-color: #4ea96f;
 }
 
 .jdc-toast.jdc-warn {
-  border-left-color: #d9a441;
+  border-left-color: #d9a13c;
 }
 
 @media (prefers-reduced-motion: reduce) {
