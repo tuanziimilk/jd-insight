@@ -1,0 +1,161 @@
+/* ═══════════════════════════════════════════════════════════════
+   JD Insight · 共用主题
+   sidepanel / popup / options 三个页面引用这一份。
+
+   ⚠️ 为什么单独一个文件：三个页面原来各抄了一份 :root，token 集合
+   还不一样（popup 少 --warn，options 少 --stop）。改一次颜色要改三处，
+   漏一处就出现"同一个扩展三种色"。这类重复在本项目已经咬过两次。
+
+   ⚠️ content.css 不用这份：它注入到招聘网站的页面里，
+   往别人的 :root 上挂变量会污染宿主站样式。那边保持硬编码。
+
+   配色沿用 v2.0 那套（深蓝图底 + 青色主色 + 琥珀/绿/红语义色），
+   跟着系统的浅色/深色偏好切换。
+   ── 历史：中间试过纸张风和两版终端风，都被否掉了。留一句备忘：
+      下次改配色之前先拿到一个具体参照（截图或产品名），
+      不要从"高级""极客"这类形容词直接生成——已经证明不收敛。 */
+
+:root {
+  --paper: #eef1f4;
+  --card: #ffffff;
+  --sunk: #dde5ea;
+  --ink: #131b23;
+  --ink2: #3e4c58;
+  --muted: #62717e;
+  --rule: #c8d2da;
+  --acc: #0d5c73;
+  --acc-soft: #d3e6ec;
+  --acc-bright: #0f6c86;
+  --acc-dim: #0d5c73;
+  --ok: #1c6b4f;
+  --warn: #91600d;
+  --warn-soft: #f6ecd6;
+  --stop: #96282e;
+  --stop-soft: #f1d9d9;
+  --card-solid: #ffffff;
+  --rule-strong: #a9b6c0;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #0e1418;
+    --card: #161e25;
+    --sunk: #121a20;
+    --ink: #e4eaee;
+    --ink2: #b9c6cf;
+    --muted: #8b9aa6;
+    --rule: #2b353e;
+    --acc: #6fbcd1;
+    --acc-soft: #16323b;
+    --acc-bright: #8ed0e2;
+    --acc-dim: #3f7d8f;
+    --ok: #58b491;
+    --warn: #d7a349;
+    --warn-soft: #322718;
+    --stop: #e0807c;
+    --stop-soft: #33191b;
+    --card-solid: #161e25;
+    --rule-strong: #3c4a55;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+/* ── 共用原子（三个页面重复出现的东西放这儿，别再各写一遍）── */
+
+/* 段落标题 */
+.sec {
+  font: 600 11px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--acc);
+}
+
+/* 状态标签。
+   ⚠️ 类名是 .st 而不是 .tag —— sidepanel.html 已有一套 .tag（气泡元信息），
+   同名会互相覆盖且后加载的赢，这种冲突很难查。 */
+.st {
+  display: inline-flex;
+  align-items: center;
+  font: 600 10.5px/1 var(--mono);
+  letter-spacing: 0.03em;
+  padding: 3px 6px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.st-ok { color: var(--ok); background: var(--acc-soft); }
+.st-warn { color: var(--warn); background: var(--warn-soft); }
+.st-stop { color: var(--stop); background: var(--stop-soft); }
+.st-info { color: var(--acc); background: var(--acc-soft); }
+.st-dim { color: var(--muted); }
+
+/* 数字：等宽 + 表格对齐。数据密集界面里这是最该做对的一处 */
+.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.pane {
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+}
+
+/* ── 表单控件 ─────────────────────────────────────────── */
+input,
+select,
+textarea {
+  font: 13px/1.5 var(--sans);
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  padding: 7px 9px;
+}
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--acc);
+}
+input:disabled,
+select:disabled,
+textarea:disabled { opacity: 0.5; cursor: not-allowed; }
+::placeholder { color: var(--muted); }
+
+button {
+  font: 500 12.5px/1.2 var(--sans);
+  border: 1px solid var(--acc);
+  background: var(--acc);
+  color: #fff;
+  border-radius: 5px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { filter: brightness(1.08); }
+button.ghost { background: var(--card); color: var(--acc); }
+button.primary { background: var(--acc); color: #fff; }
+button.danger { background: var(--card); color: var(--stop); border-color: var(--stop); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+code {
+  font: 12px var(--mono);
+  background: var(--sunk);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
+a { color: var(--acc); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}

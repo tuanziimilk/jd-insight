@@ -3,48 +3,36 @@
 <head>
 <meta charset="utf-8">
 <title>JD Insight · 设置</title>
+<link rel="stylesheet" href="theme.css">
 <style>
-  :root {
-    --paper:#eef1f4; --card:#fff; --sunk:#dde5ea; --ink:#131b23; --ink2:#3e4c58;
-    --muted:#62717e; --rule:#c8d2da; --acc:#0d5c73; --warn:#91600d; --warn-soft:#f6ecd6;
-    --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root { --paper:#0e1418; --card:#161e25; --sunk:#121a20; --ink:#e4eaee; --ink2:#b9c6cf;
-      --muted:#8b9aa6; --rule:#2b353e; --acc:#6fbcd1; --warn:#d7a349; --warn-soft:#322718; }
-  }
-  * { box-sizing:border-box }
   body { margin:0; padding:26px; background:var(--paper); color:var(--ink);
-    font:14px/1.7 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif; }
+    font:14px/1.7 var(--sans); }
   .wrap { max-width:620px; margin:0 auto }
   h1 { margin:0 0 4px; font-size:19px }
   .sub { margin:0 0 22px; color:var(--muted); font-size:13px }
-  fieldset { border:1px solid var(--rule); border-radius:7px; background:var(--card);
+  fieldset { border:1px solid var(--rule); border-radius:2px; background:var(--card-solid);
     padding:16px 18px; margin:0 0 16px }
-  legend { padding:0 7px; font-size:12px; font-weight:600; color:var(--acc);
-    font-family:var(--mono); letter-spacing:.08em; text-transform:uppercase }
-  label { display:block; margin:12px 0 4px; font-size:12.5px; font-weight:600; color:var(--ink2) }
+  legend { padding:0 6px; font:600 11px/1 var(--mono); color:var(--acc);
+    letter-spacing:.08em; text-transform:uppercase }
+  label { display:block; margin:12px 0 4px; font-size:12.5px; font-weight:600; color:var(--ink) }
   label:first-of-type { margin-top:0 }
-  input, select {
-    width:100%; padding:8px 10px; border:1px solid var(--rule); border-radius:5px;
-    background:var(--paper); color:var(--ink); font:13px/1.4 inherit;
-  }
-  input:focus, select:focus { outline:none; border-color:var(--acc) }
-  .tip { margin:4px 0 0; font-size:11.5px; color:var(--muted) }
+  /* 颜色/边框/聚焦态都在 theme.css，这里只管撑满宽度 */
+  input, select { width:100% }
+  .tip { margin:4px 0 0; font-size:11.5px; color:var(--ink2) }
   .row { display:flex; gap:10px }
   .row > div { flex:1 }
   .warn { background:var(--warn-soft); border-left:3px solid var(--warn);
-    padding:11px 13px; border-radius:5px; font-size:12.5px; margin:0 0 16px; color:var(--ink2) }
+    padding:11px 13px; border-radius:2px; font-size:12.5px; margin:0 0 16px; color:var(--ink) }
   .warn b { color:var(--warn) }
-  button { border:1px solid var(--acc); background:var(--acc); color:#fff;
-    padding:9px 18px; border-radius:6px; cursor:pointer; font:500 13px inherit }
-  button.ghost { background:var(--card); color:var(--acc) }
+  /* 按钮外观在 theme.css。这页只调内距。 */
+  button { padding:9px 16px }
+  button.ghost { color:var(--ink2); border-color:var(--rule-strong) }
   .bar { display:flex; gap:9px; align-items:center }
-  #status { font-size:12.5px; color:var(--muted) }
-  code { font-family:var(--mono); background:var(--sunk); padding:1px 5px; border-radius:3px; font-size:.88em }
+  #status { font:12px/1.4 var(--mono); color:var(--ink2) }
+  code { font-size:.88em }
   table { border-collapse:collapse; width:100%; font-size:12.5px; margin-top:8px }
   th,td { border:1px solid var(--rule); padding:5px 8px; text-align:left }
-  th { background:var(--sunk); font-weight:600 }
+  th { background:var(--sunk); font:600 11px/1.4 var(--mono); color:var(--ink2) }
   th .mini { font-weight:400; font-size:10px; color:var(--muted) }
   #priceTable input { padding:4px 6px; font-size:12px }
   #priceTable td:first-child input { font-family:var(--mono) }
@@ -139,6 +127,58 @@
   </fieldset>
 
   <fieldset>
+    <legend>Cloud Sync</legend>
+    <p class="tip" style="margin-top:0">
+      同步到 <code>career-web</code> 工作台用的同一套 Supabase 项目。
+      不装 SDK，手写基于 fetch 的客户端——和上面调模型是同一套零构建原则。
+    </p>
+    <label for="supabaseUrl">Supabase Project URL</label>
+    <input id="supabaseUrl" placeholder="https://xxxx.supabase.co">
+
+    <div class="row">
+      <div>
+        <label for="supabaseAnonKey">anon public key</label>
+        <input id="supabaseAnonKey" placeholder="eyJ...">
+      </div>
+    </div>
+    <p class="tip">
+      两个值都在 career-web 的 <code>.env.local</code> 里，或 Supabase Dashboard →
+      Settings → API 里能找到。anon key 可以公开——权限完全由数据库的 RLS 决定。
+    </p>
+
+    <div class="row">
+      <div>
+        <label for="syncEmail">邮箱</label>
+        <input id="syncEmail" type="email" placeholder="你的登录邮箱">
+      </div>
+      <div>
+        <label for="syncPassword">密码</label>
+        <input id="syncPassword" type="password" placeholder="同步专用密码">
+      </div>
+    </div>
+    <p class="tip">
+      ⚠️ 用邮箱+密码登录，不用魔法链接——魔法链接的回调要处理跳转到扩展页面，
+      在 MV3 里要绕一圈，对个人工具不值得。<b>需要先在 career-web 里登录一次，
+      然后用「设置同步密码」功能给这个账号加一个密码</b>（同一账号，RLS 按身份判断，
+      跟你用哪种方式登录无关）。
+    </p>
+    <div class="bar">
+      <button id="syncLogin">登录</button>
+      <button class="ghost" id="syncLogout">退出</button>
+      <span id="syncStatus" style="font-size:12px;color:var(--muted)"></span>
+    </div>
+
+    <div class="bar" style="margin-top:13px">
+      <button id="syncNow">同步全部 JD 到云端</button>
+      <span id="syncProgress" style="font-size:12px;color:var(--muted)"></span>
+    </div>
+    <p class="tip">
+      只做 upsert，不做删除——本地删记录不会同步删云端，避免网络抖动导致
+      的空列表被误当成「真的清空了」而级联删掉云端数据。
+    </p>
+  </fieldset>
+
+  <fieldset>
     <legend>Data</legend>
     <p class="tip" style="margin-top:0">本地存了什么：</p>
     <table>
@@ -163,7 +203,7 @@
   </fieldset>
 
   <div class="bar">
-    <button id="save">保存</button>
+    <button class="primary" id="save">保存</button>
     <button class="ghost" id="test">测试连接</button>
     <span id="status"></span>
   </div>

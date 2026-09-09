@@ -2,6 +2,9 @@ import {
   getSettings, saveSettings, chatOnce, explainError,
   getUsageTotal, resetUsage, fmtCost,
 } from "./lib/llm.js";
+import {
+  getSyncSettings, isSyncConfigured, isLoggedIn, login, logout, syncAll, explainSyncError,
+} from "./lib/syncSupabase.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -160,4 +163,76 @@ $("clearKey").onclick = async () => {
   $("status").textContent = "✓ Key 已清除";
 };
 
+/* ---------------- Cloud Sync ---------------- */
+
+async function paintSyncStatus() {
+  const s = await getSyncSettings();
+  if (!isSyncConfigured(s)) {
+    $("syncStatus").textContent = "未配置 Supabase URL / key";
+  } else if (isLoggedIn(s)) {
+    $("syncStatus").textContent = "✓ 已登录：" + s.syncEmail;
+  } else if (s.refreshToken) {
+    $("syncStatus").textContent = "登录已过期，重新登录一次";
+  } else {
+    $("syncStatus").textContent = "未登录";
+  }
+}
+
+$("supabaseUrl").addEventListener("change", async (e) => {
+  const s = await getSyncSettings();
+  await chrome.storage.local.set({ sync: { ...s, supabaseUrl: e.target.value.trim() } });
+});
+$("supabaseAnonKey").addEventListener("change", async (e) => {
+  const s = await getSyncSettings();
+  await chrome.storage.local.set({ sync: { ...s, supabaseAnonKey: e.target.value.trim() } });
+});
+
+$("syncLogin").onclick = async () => {
+  const email = $("syncEmail").value.trim();
+  const password = $("syncPassword").value;
+  if (!email || !password) {
+    $("syncStatus").textContent = "请填邮箱和密码";
+    return;
+  }
+  $("syncStatus").textContent = "登录中…";
+  try {
+    await login(email, password);
+    $("syncPassword").value = "";
+    await paintSyncStatus();
+  } catch (e) {
+    $("syncStatus").textContent = "✗ " + explainSyncError(e.message);
+  }
+};
+
+$("syncLogout").onclick = async () => {
+  await logout();
+  await paintSyncStatus();
+};
+
+$("syncNow").onclick = async () => {
+  const { jds = [] } = await chrome.storage.local.get({ jds: [] });
+  if (!jds.length) {
+    $("syncProgress").textContent = "本地还没有采集任何 JD。";
+    return;
+  }
+  $("syncNow").disabled = true;
+  $("syncProgress").textContent = `同步中… 0/${jds.length}`;
+  const res = await syncAll(jds, (done, total) => {
+    $("syncProgress").textContent = `同步中… ${done}/${total}`;
+  });
+  $("syncNow").disabled = false;
+  $("syncProgress").textContent = res.ok
+    ? `✓ 已同步 ${res.synced} 条`
+    : `✗ 同步到第 ${res.synced} 条时失败：${res.reason || ""}`;
+};
+
+async function loadSync() {
+  const s = await getSyncSettings();
+  $("supabaseUrl").value = s.supabaseUrl || "";
+  $("supabaseAnonKey").value = s.supabaseAnonKey || "";
+  $("syncEmail").value = s.syncEmail || "";
+  await paintSyncStatus();
+}
+
+loadSync();
 load();

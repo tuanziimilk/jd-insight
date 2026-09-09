@@ -3,7 +3,15 @@
   "name": "JD Insight · 求职情报台",
   "version": "2.1.1",
   "description": "在你自己浏览的岗位详情页一键存下 JD，然后用对话问它：高频要求是什么、我缺什么、面试会问什么。只读当前页面，不自动翻页。",
-  "permissions": ["storage", "downloads", "sidePanel"],
+  "permissions": [
+    "storage",
+    "downloads",
+    "sidePanel"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://localhost/*"
+  ],
   "host_permissions": [
     "https://www.zhipin.com/*",
     "https://*.zhipin.com/*",
@@ -12,10 +20,21 @@
     "https://*.lagou.com/*",
     "https://*.51job.com/*"
   ],
-  "optional_host_permissions": ["https://*/*", "http://localhost/*"],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "JD Insight"
+    "default_title": "JD Insight",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   },
   "side_panel": {
     "default_path": "sidepanel.html"
@@ -24,16 +43,6 @@
   "background": {
     "service_worker": "background.js",
     "type": "module"
-  },
-  "commands": {
-    "save-jd": {
-      "suggested_key": { "default": "Alt+S" },
-      "description": "存下当前打开的这条 JD"
-    },
-    "open-panel": {
-      "suggested_key": { "default": "Alt+A" },
-      "description": "打开/关闭求职情报台"
-    }
   },
   "content_scripts": [
     {
@@ -45,9 +54,41 @@
         "https://*.lagou.com/*",
         "https://*.51job.com/*"
       ],
-      "js": ["content.js"],
-      "css": ["content.css"],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
       "run_at": "document_idle"
     }
-  ]
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "lib/salary.js"
+      ],
+      "matches": [
+        "https://*.zhipin.com/*",
+        "https://*.zhaopin.com/*",
+        "https://*.liepin.com/*",
+        "https://*.lagou.com/*",
+        "https://*.51job.com/*"
+      ]
+    }
+  ],
+  "commands": {
+    "save-jd": {
+      "suggested_key": {
+        "default": "Alt+S"
+      },
+      "description": "存下当前打开的这条 JD"
+    },
+    "open-panel": {
+      "suggested_key": {
+        "default": "Alt+A"
+      },
+      "description": "打开/关闭求职情报台"
+    }
+  }
 }
