@@ -1,4 +1,21 @@
-/* JD 采集器 · 内容脚本  v1.5.1
+/* JD 采集器 · 内容脚本  v1.6
+ *
+ * v1.6（2026-09-09）：还原被私有区字体挡住的薪资数字（lib/glyphmap.js）。
+ *   用户在明确知道风险后要求做：「解 PUA 码位到数字的映射，无论如何，处理一下」。
+ *   这违反下面设计原则第 1 条「不破解字体」，例外已写进第 1 条。
+ *
+ *   底线没变：**错一位数比空着糟得多**。所以不硬编码任何映射表——
+ *   硬编码是最省事也最危险的做法，BOSS 换一次字体子集，表还在、结果全错，
+ *   而且错得像真的。改成每次在当前页面现场推导：kanzhun-mix 自己带正常的
+ *   ASCII 数字字形，把私有区字符和 "0"–"9" 用同一个字体画到 canvas 上比像素。
+ *
+ *   验收是语义上的：拿整页几十条解码结果去过薪资合理性（月薪 1k–300k、
+ *   月数 12–24、下限≤上限），低于 85% 合理就整个放弃还原、退回「薪资待补」。
+ *   不降级成「用一个勉强的映射」。
+ *   还原出来的薪资来源标成「字形还原」，和「详情面板」区分开——万一哪天
+ *   映射错了，你能一眼看出哪些记录是推导来的。
+ *   踩过的三个坑（宽高比、一一对应约束、单字置信度不可信）记在
+ *   lib/glyphmap.js 文件头，别再踩回去。
  *
  * v1.5.1（2026-09-09）：识别「插件刚更新过」这种失效状态。
  *   在 chrome://extensions 点刷新重载插件后，已打开的页面里那份 content.js
@@ -71,10 +88,14 @@
  *         正文里 78 个私有区字符。这种页面上自动识别不可能成功，只能手工补。
  *
  * 设计原则：
- *   1. 只读取「当前页面已经渲染出来的内容」——不发请求、不翻页、不破解字体。
- *      v1.5 起有一个例外：会派发一次 click 把详情面板切到鼠标指着的那条
- *      （见 openCard）。边界是「只做用户本来要自己做的那一下」，
- *      绝不点投递 / 立即沟通这类有外部后果的按钮。
+ *   1. 只读取「当前页面已经渲染出来的内容」——不发请求、不翻页。
+ *      两个例外，都是用户明确要求后开的，边界写清在这里：
+ *      · v1.5：派发一次 click 把详情面板切到鼠标指着的那条（见 openCard）。
+ *        只做用户本来要自己做的那一下，绝不点投递 / 立即沟通这类有外部
+ *        后果的按钮。
+ *      · v1.6：还原私有区字体挡住的数字（见 lib/glyphmap.js）。
+ *        不下载字体文件、不发任何请求——只把页面**已经加载好**的字体
+ *        画到 canvas 上比字形。推导不出可信映射就放弃，不猜。
  *   2. 字段提取限定在「详情面板」范围内，避免抓到左侧列表的第一张卡片。
  *   3. 无论字段抓得准不准，都额外存一份整页纯文本（pageText）兜底——
  *      真正的字段解析交给 analyze_jd.py，那边改规则比改插件容易。
@@ -135,6 +156,78 @@
     .catch((e) => {
       console.warn("[jd-insight] 薪资解析模块加载失败，会退回手填：", e && e.message);
     });
+
+  /* 私有区字形还原（lib/glyphmap.js）。同样走动态 import。
+   * 加载不上就当没有这个功能——薪资退回「待补」，不影响采集。 */
+  let GLYPH = null;
+  const glyphReady = import(chrome.runtime.getURL("lib/glyphmap.js"))
+    .then((m) => {
+      GLYPH = m;
+    })
+    .catch((e) => {
+      console.warn("[jd-insight] 字形还原模块加载失败，薪资会退回待补：", e && e.message);
+    });
+
+  /* 本页的解码器。整页只推导一次并缓存：推导要渲染 20 个字形，
+   * 每存一条 JD 都重算是纯浪费。null = 还没算过，false = 算过但不可信。 */
+  let decoder = undefined;
+
+  /** 一条解码后的薪资文本像不像真的。
+   *
+   * 这是字形映射唯一有牙齿的验收标准（见 glyphmap.js 文件头坑 c），
+   * 所以边界要卡得住常见的错位结果：
+   *   - 月薪 1k–300k：解错一位会变成 2k 或 200k+ 这种量级
+   *   - 月数 12–24：BOSS 上不存在 95 薪，这正是当初抓到 1/9 判反的那条
+   *   - 下限 ≤ 上限 */
+  function plausibleSalary(text) {
+    if (!SAL) return false;
+    const p = SAL.parseSalary(text);
+    if (!p || !p.parsed || p.min == null || p.max == null) return false;
+    if (p.min > p.max) return false;
+    if (p.min < 1000 || p.max > 300000) return false;
+    if (p.months !== undefined && (p.months < 12 || p.months > 24)) return false;
+    return true;
+  }
+
+  /** 收集本页所有薪资元素的原文，当作推导映射的样本。
+   *  样本越多验收越有力——列表页一次能给 30 条，这是它唯一的优势。 */
+  function salarySamples() {
+    const out = [];
+    let fontFamily = "";
+    for (const el of document.querySelectorAll(".job-salary, .salary, .red")) {
+      const t = el.textContent || "";
+      if (!GLYPH.hasPua(t)) continue;
+      out.push(t);
+      if (!fontFamily) fontFamily = getComputedStyle(el).fontFamily;
+    }
+    return { samples: out, fontFamily };
+  }
+
+  /** 取本页的解码器，没有就现场推导一次。返回 null 表示不可用。 */
+  function getDecoder() {
+    if (decoder !== undefined) return decoder;
+    decoder = null;
+    if (!GLYPH || !SAL) return decoder;
+    const { samples, fontFamily } = salarySamples();
+    if (!samples.length) return decoder; // 这页没有私有区字符，不需要还原
+    const r = GLYPH.deriveDigitMap({ samples, fontFamily, isPlausible: plausibleSalary });
+    if (!r.ok) {
+      // 失败就是失败，不降级成「用一个勉强的映射」。
+      console.warn("[jd-insight] 字形还原不可用：" + r.reason, r.stats || "");
+      return decoder;
+    }
+    console.info("[jd-insight] 字形还原就绪：" + r.stats.mapping + "（样本 " + r.stats.plausible + "/" + r.stats.samples + " 条合理）");
+    decoder = (t) => GLYPH.decodeWith(t, r.map);
+    decoder.stats = r.stats;
+    return decoder;
+  }
+
+  /** 文本里有私有区字符就试着还原；不可用时原样返回。 */
+  function deglyph(text) {
+    if (!text || !GLYPH || !GLYPH.hasPua(text)) return text;
+    const d = getDecoder();
+    return d ? d(text) : text;
+  }
 
   /** 模块没加载成功时返回空数组——降级成"读不到薪资"，而不是用一套简化正则
    *  给出可能不一致的结果。两套解析规则各自漂移是更难查的问题。 */
@@ -558,13 +651,30 @@
   /** 在 root 里按选择器找薪资元素，跳过相似职位/推荐位。
    *  独立详情页上 root 是整个 document，而页脚的推荐岗位也带 .salary，
    *  直接 querySelector 有抓到别人薪资的风险。 */
+  /** 未经还原的薪资原文。只用来判断「这条是不是靠还原才拿到数字的」。 */
+  function rawSalaryText(root) {
+    const scopeRoot = root && root.querySelectorAll ? root : document;
+    for (const sel of [".job-salary", ".salary", ".job-limit .red", ".job-banner .salary"]) {
+      for (const el of scopeRoot.querySelectorAll(sel)) {
+        if (inReco(el)) continue;
+        const t = clean(el.textContent);
+        if (t) return t;
+      }
+    }
+    return "";
+  }
+
   function pickSalaryEl(root) {
     const scopeRoot = root && root.querySelectorAll ? root : document;
     for (const sel of [".job-salary", ".salary", ".job-limit .red", ".job-banner .salary"]) {
       for (const el of scopeRoot.querySelectorAll(sel)) {
         if (inReco(el)) continue;
-        const t = clean(el.innerText);
-        if (t) return t;
+        // textContent 而不是 innerText：私有区字符两者一样，但 textContent
+        // 不受 CSS 影响，也不会因为元素在视口外而拿到空串。
+        const t = clean(el.textContent);
+        // 私有区字符在这里就地还原。还原不了就原样返回（"-K·薪"），
+        // 下游 /\d/ 测不到数字，照旧走「薪资待补」。
+        if (t) return deglyph(t);
       }
     }
     return "";
@@ -572,8 +682,12 @@
 
   function getSalary(root) {
     // ① DOM 里的薪资元素（排除推荐位）。BOSS 的独立详情页 /job_detail/xxx.html
-    //    上薪资是明文，走这条就够；列表+面板页上会被字体挡住，读到 "-K"。
+    //    上薪资是明文，走这条就够。列表+面板页上是私有区字符，由 deglyph()
+    //    在 pickSalaryEl 里就地还原（还原失败就仍然是 "-K·薪"，照旧待补）。
     const direct = pickSalaryEl(root);
+    // 还原出来的值要单独标来源。这不是洁癖：字形映射是推导出来的，
+    // 万一 BOSS 换字体导致整页错位，你得能一眼看出哪些记录来自还原。
+    const viaGlyph = !!(decoder && GLYPH && GLYPH.hasPua(rawSalaryText(root)));
     const metaCand = findSalaryCandidates(metaTexts());
 
     if (/\d/.test(direct)) {
@@ -590,7 +704,7 @@
           conflict: domVal + " vs " + metaCand[0],
         };
       }
-      return { raw: domVal, source: "详情面板", usable: true };
+      return { raw: domVal, source: viaGlyph ? "字形还原" : "详情面板", usable: true };
     }
 
     // ② DOM 被挡住时退到明文来源，按「范围越小越可信」排序。
@@ -708,6 +822,7 @@
   async function save() {
     // 等薪资解析模块就绪。文件很小、只加载一次，第二次点是同步返回。
     await salReady;
+    await glyphReady;
 
     // 先保证面板里开着的就是鼠标正指着的那条。BOSS 列表页一落地就把第一条
     // 预加载进面板，只认面板会在「你在看第 7 条」时静默存下第 1 条。
