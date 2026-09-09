@@ -1,4 +1,19 @@
-/* JD 采集器 · 内容脚本  v1.5
+/* JD 采集器 · 内容脚本  v1.5.1
+ *
+ * v1.5.1（2026-09-09）：识别「插件刚更新过」这种失效状态。
+ *   在 chrome://extensions 点刷新重载插件后，已打开的页面里那份 content.js
+ *   还在跑但连接已断，任何 chrome.* 调用都抛 "Extension context invalidated"。
+ *   实测就出现过一次「列表页点存 JD 一直失败，只能绕道点进详情页保存」，
+ *   而真正要做的只是按 F5。原文错误对人毫无指导意义，现在换成该做的动作。
+ *   storage 的两个回调里也各查一次 lastError——回调里的异常进不了
+ *   save() 外面那层 catch，只查外层等于漏掉真正会失败的地方。
+ *
+ *   同时实测确认（这条别再反复试了）：列表版面上**卡片里的薪资也是私有区
+ *   字符**，每个 6 个 PUA 码位，文本层面就是 "-K·薪"。屏幕上能看到
+ *   25-50K·15薪 是 kanzhun-mix 字体把码位画成了数字。页面上也没有暴露
+ *   Vue 实例或全局初始状态可以绕（__vue__ / __vueParentComponent /
+ *   __INITIAL_STATE__ 全都没有）。所以列表页的「薪资待补」是准确的，
+ *   不是漏抓。
  *
  * v1.5（2026-09-09，在真实 BOSS 列表页上实测后写的）：
  *   存 JD 现在抓「鼠标最后停留过的那张卡」，面板不是那条就先自动切过去，
@@ -660,10 +675,33 @@
   /** save 是 async，三个调用点（按钮、快捷键、后台消息）都不 await。
    *  不包一层的话任何异常都是未处理的 Promise rejection——界面毫无反应，
    *  人只会以为"按钮坏了"。采集是这个工具最频繁的动作，绝不能静默失败。 */
+  /** 插件本体还连着吗。
+   *
+   * 在 chrome://extensions 点「刷新」重载插件之后，已经打开的页面里那份
+   * content.js 还在跑，但它和插件的连接已经断了：任何 chrome.* 调用都会抛
+   * "Extension context invalidated"。这个原文错误对人毫无指导意义——
+   * 实测就出现过一次「点存 JD 一直失败，只好绕道点进详情页」，
+   * 而真正要做的只是刷新一下页面。所以这里专门识别它并给出该做的动作。 */
+  function extAlive() {
+    try {
+      return !!(chrome.runtime && chrome.runtime.id);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  const STALE_MSG = "插件刚更新过，这个页面里的旧脚本已失效 —— 按 F5 刷新页面再存";
+  const isStale = (e) =>
+    !extAlive() || /Extension context invalidated|context invalidated/i.test((e && e.message) || "");
+
   function safeSave() {
+    if (!extAlive()) {
+      toast(STALE_MSG, "warn");
+      return;
+    }
     save().catch((e) => {
       console.error("[jd-insight] 保存失败：", e);
-      toast("保存失败：" + ((e && e.message) || "未知错误"), "warn");
+      toast(isStale(e) ? STALE_MSG : "保存失败：" + ((e && e.message) || "未知错误"), "warn");
     });
   }
 
@@ -700,12 +738,22 @@
       rec.salaryPending = true;
     }
 
-    chrome.storage.local.get({ jds: [] }, ({ jds }) => {
+    chrome.storage.local.get({ jds: [] }, (got) => {
+      // 回调里的异常进不了 save() 外面那层 catch，所以在这里自己查一次。
+      if (chrome.runtime.lastError || !got) {
+        toast(isStale(chrome.runtime.lastError) ? STALE_MSG : "读本地存储失败", "warn");
+        return;
+      }
+      const jds = got.jds || [];
       const i = jds.findIndex((x) => x.key === rec.key);
       const isNew = i < 0;
       if (isNew) jds.push(rec);
       else jds[i] = rec;
       chrome.storage.local.set({ jds }, () => {
+        if (chrome.runtime.lastError) {
+          toast(isStale(chrome.runtime.lastError) ? STALE_MSG : "写本地存储失败", "warn");
+          return;
+        }
         const label = (rec.title || "这条").split("\n")[0].slice(0, 16);
         // 公司名也显示出来。两个理由：存的时候就该看见存的是哪家；
         // 以及抓不到会当场暴露——公司名曾经因为 · 换行而一直是空的，
