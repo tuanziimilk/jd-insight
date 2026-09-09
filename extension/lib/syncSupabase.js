@@ -117,13 +117,137 @@ async function authedFetch(s, url, opts) {
   return fetch(url, { ...opts, headers });
 }
 
+/* ── 删除墓碑 ─────────────────────────────────────────────────
+ *
+ * 为什么需要墓碑：syncAll 只做 upsert、刻意不从"本地没有了"推断删除
+ * （见上面 syncAll 的注释——网络抖动导致的空列表被误当成"用户真的清空了"
+ * 是不可逆的损失）。但"我手动删掉这一条"是**显式意图**，云端应该跟着删。
+ *
+ * 这两件事的区别是：一个是从差异推断，一个是用户点了删除按钮。
+ * 所以显式删除单独记一份 key 列表（墓碑），下次同步时执行，
+ * 成功后清掉。删除时如果没登录/断网，墓碑会一直留着直到同步成功——
+ * 不会出现"本地删了、云端还在、工作台照样显示"的鬼影。
+ */
+export async function addTombstone(jobKey) {
+  const { deletedKeys = [] } = await chrome.storage.local.get({ deletedKeys: [] });
+  if (!deletedKeys.includes(jobKey)) {
+    deletedKeys.push(jobKey);
+    await chrome.storage.local.set({ deletedKeys });
+  }
+}
+
+export async function getTombstones() {
+  const { deletedKeys = [] } = await chrome.storage.local.get({ deletedKeys: [] });
+  return deletedKeys;
+}
+
+/** 在云端删掉这些 key，并写一条云端墓碑。返回成功处理完的 key。
+ *
+ *  ⚠️ 云端墓碑（career_deleted_jds）是给**其他端**看的：
+ *  工作台读它才知道这条被插件删了；不写的话工作台那边照样显示。
+ *  顺序是「先写墓碑再删记录」——反过来的话中途失败会留下
+ *  "记录没了但没有删除凭证"的状态，其他端无从得知。 */
+async function flushTombstones(s, keys) {
+  const done = [];
+  for (const key of keys) {
+    const tomb = await authedFetch(
+      s,
+      restUrl(s.supabaseUrl, "/career_deleted_jds?on_conflict=user_id,job_key"),
+      {
+        method: "POST",
+        headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify({
+          job_key: key,
+          deleted_at: new Date().toISOString(),
+          deleted_by: "扩展",
+        }),
+      }
+    );
+    if (!tomb.ok) continue; // 墓碑没写上就不动记录，下次重试
+
+    const q = `?job_key=eq.${encodeURIComponent(key)}`;
+    const [a, b] = await Promise.all([
+      authedFetch(s, restUrl(s.supabaseUrl, "/career_status_history" + q), { method: "DELETE" }),
+      authedFetch(s, restUrl(s.supabaseUrl, "/career_jds" + q), { method: "DELETE" }),
+    ]);
+    // 两边都成功才算删干净。只删了历史没删本体的话下次还得重来，
+    // 所以本地墓碑先不清——宁可重试一次，也不要留半条记录。
+    if (a.ok && b.ok) done.push(key);
+  }
+  return done;
+}
+
+/** 读云端墓碑，把本地对应记录清掉。返回 {removed, revived}。
+ *
+ * 这是三端同步里最容易出错的一环。要点：
+ *
+ * 1. **为什么不能靠"云端没有这条"来判断**：那和"这条从来没同步过"
+ *    在数据上无法区分。靠差异推断的话，一条刚采集还没同步的新记录
+ *    会被当成"云端删过"而被本地清掉。
+ *
+ * 2. **删完又重新采集怎么办**：比较时间。本地记录的采集时间（ts）
+ *    比墓碑的 deleted_at 晚 → 说明是重新采的，墓碑作废（顺手删掉云端
+ *    那条墓碑，否则它会一直挡着这个岗位）。早于墓碑 → 该删。
+ *    没有这个比较，你删掉一个岗位后就再也无法重新采集它了。
+ */
+async function pullDeletions(s) {
+  const resp = await authedFetch(
+    s,
+    restUrl(s.supabaseUrl, "/career_deleted_jds?select=job_key,deleted_at"),
+    { method: "GET" }
+  );
+  if (!resp.ok) return { removed: 0, revived: 0, ok: false };
+  const tombs = await resp.json().catch(() => []);
+  if (!Array.isArray(tombs) || !tombs.length) return { removed: 0, revived: 0, ok: true };
+
+  const { jds = [] } = await chrome.storage.local.get({ jds: [] });
+  const byKey = new Map(jds.map((j) => [j.key, j]));
+
+  const toRemove = [];
+  const staleTombs = [];
+  for (const t of tombs) {
+    const local = byKey.get(t.job_key);
+    if (!local) continue; // 本地没有，不用管
+    const localTs = Date.parse(String(local.ts || "").replace(" ", "T"));
+    const tombTs = Date.parse(t.deleted_at);
+    if (Number.isFinite(localTs) && Number.isFinite(tombTs) && localTs > tombTs) {
+      staleTombs.push(t.job_key); // 删完又重新采集了
+    } else {
+      toRemove.push(t.job_key);
+    }
+  }
+
+  if (toRemove.length) {
+    await chrome.storage.local.set({ jds: jds.filter((j) => !toRemove.includes(j.key)) });
+  }
+  // 作废的墓碑要从云端删掉，否则它会永久挡住这个岗位
+  for (const key of staleTombs) {
+    await authedFetch(
+      s,
+      restUrl(s.supabaseUrl, `/career_deleted_jds?job_key=eq.${encodeURIComponent(key)}`),
+      { method: "DELETE" }
+    );
+  }
+  return { removed: toRemove.length, revived: staleTombs.length, ok: true };
+}
+
 /**
- * 把一批本地 JD（含 statusHistory）同步进 career_jds + career_status_history。
+ * 把本地 JD（含 statusHistory）同步进 career_jds + career_status_history，
+ * 并执行积压的删除墓碑。
  *
- * 只做 upsert，不做删除——本地删记录不会同步删云端，避免"网络抖动导致的
- * 空列表"被错误当成"用户真的清空了"而级联删掉云端数据（不可逆的损失要避免）。
+ * 删除的两种来源要分清：
+ *   · **不做**从差异推断的删除——"本地没有这条了"不代表要删云端，
+ *     网络抖动导致的空列表被误当成"用户真的清空了"是不可逆的损失。
+ *   · **做**显式删除——用户在弹窗里点了删除按钮，那是明确意图，
+ *     记进墓碑并在这里执行（见 addTombstone）。
  *
- * @returns {{ok:boolean, synced:number, reason?:string}}
+ * 三端同步的完整顺序（顺序本身是设计的一部分）：
+ *   1. 推本地删除 → 云端删记录 + 写云端墓碑（让其他端知道）
+ *   2. 拉云端删除 → 清掉本地对应记录（否则第 3 步会把它推回来）
+ *   3. 推剩下的记录
+ *
+ * @returns {{ok:boolean, synced:number, deleted?:number,
+ *            pulledRemoved?:number, pulledRevived?:number, reason?:string}}
  */
 export async function syncAll(jobs, onProgress) {
   let s = await getSyncSettings();
@@ -137,6 +261,28 @@ export async function syncAll(jobs, onProgress) {
   }
 
   await ensureHostPermission(s.supabaseUrl);
+
+  /* 先执行删除，再推送。顺序有意义：如果先推送后删除，
+     刚刚被 upsert 上去的记录可能又被墓碑删掉（同一个 key 既在 jobs 里
+     又在墓碑里的情况——比如删完又重新采集了同一个岗位）。
+     先删后推，最终状态就是"本地现在有什么，云端就是什么"。 */
+  const tombs = await getTombstones();
+  let deleted = 0;
+  if (tombs.length) {
+    const done = await flushTombstones(s, tombs);
+    deleted = done.length;
+    const left = tombs.filter((k) => !done.includes(k));
+    await chrome.storage.local.set({ deletedKeys: left });
+  }
+
+  /* 再拉云端删除：工作台删掉的记录本地还有，不清掉的话下面的推送
+     会把它重新 upsert 回云端——记录复活。这一步必须在推送之前。 */
+  const pulled = await pullDeletions(s);
+  if (pulled.removed) {
+    // 本地记录被清掉了，jobs 这个入参已经过期，重新读一遍
+    const fresh = await chrome.storage.local.get({ jds: [] });
+    jobs = fresh.jds;
+  }
 
   let synced = 0;
   for (const job of jobs) {
@@ -196,7 +342,7 @@ export async function syncAll(jobs, onProgress) {
     onProgress?.(synced, jobs.length);
   }
 
-  return { ok: true, synced };
+  return { ok: true, synced, deleted, pulledRemoved: pulled.removed, pulledRevived: pulled.revived };
 }
 
 export function explainSyncError(msg) {

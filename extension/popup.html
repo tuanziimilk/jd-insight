@@ -57,6 +57,10 @@
   }
   .chip.on { border-style: solid; border-color: var(--acc-dim); color: var(--acc); background: var(--acc-soft); }
   .chip:hover { border-color: var(--acc); }
+  /* 删除推到最右、用红色描边。它是这一行唯一不可逆的操作，
+     不能和「切换意向」这种随便点的 chip 长得一样。 */
+  .chip.del { margin-left: auto; color: var(--stop); border-color: var(--stop); border-style: solid; }
+  .chip.del:hover { background: var(--stop); color: #fff; border-color: var(--stop); }
   .salinput {
     flex: 0 0 auto; width: 106px; padding: 1px 6px; font: 10.5px/1.5 var(--mono);
     border: 1px solid var(--acc); border-radius: 2px;

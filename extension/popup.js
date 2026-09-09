@@ -6,6 +6,7 @@
 
 import { STATUS_CYCLE, FAIL_BUCKETS, pushStatus, isTerminal } from "./lib/pipeline.js";
 import { parseSalary, formatSalary } from "./lib/salary.js";
+import { addTombstone, getSyncSettings, isSyncConfigured } from "./lib/syncSupabase.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -43,6 +44,39 @@ async function setSalary(key, text) {
   };
   await chrome.storage.local.set({ jds });
   CACHE = jds;
+  render();
+}
+
+/** 删掉一条。
+ *
+ * 三件事一起做，缺一件就会留下不一致：
+ *   1. 从本地存储移除
+ *   2. 记一条删除墓碑 —— 下次同步时把云端那条也删掉。
+ *      不这么做的话本地删了、云端还在，工作台照样显示它（鬼影记录）。
+ *   3. 确认框里必须带岗位名 —— 列表里每行都有删除按钮，
+ *      只写"确定删除吗"防不住误点到相邻那条。
+ *
+ * 刻意不做撤销：弹窗一点外面就关，撤销提示活不过那一下，
+ * 做了反而给人虚假的安全感。备份走「导出 JSON」。 */
+async function deleteJob(key) {
+  const rec = CACHE.find((x) => x.key === key);
+  const label = firstLine(rec?.title) || "这条";
+  const company = rec?.company ? "（" + rec.company.slice(0, 14) + "）" : "";
+
+  const sync = await getSyncSettings();
+  const willSyncDelete = isSyncConfigured(sync);
+  const extra = willSyncDelete
+    ? "\n\n下次同步时也会从云端删掉。"
+    : "\n\n（还没配置云端同步，只删本地。）";
+
+  if (!confirm("删除「" + label + "」" + company + "？" + extra)) return;
+
+  const { jds = [] } = await chrome.storage.local.get({ jds: [] });
+  const next = jds.filter((x) => x.key !== key);
+  await chrome.storage.local.set({ jds: next });
+  if (willSyncDelete) await addTombstone(key);
+
+  CACHE = next;
   render();
 }
 
@@ -225,6 +259,16 @@ function render() {
       tags.appendChild(bsal);
       tags.appendChild(bi);
       tags.appendChild(bs);
+
+      // 删除推到最右边、和其他 chip 隔开——它是这一行里唯一不可逆的操作，
+      // 不该和「切换意向」这种随便点的按钮挨在一起。
+      const bd = document.createElement("button");
+      bd.className = "chip del";
+      bd.textContent = "删除";
+      bd.title = "删掉这条（会确认；配了云端同步的话下次同步一并删云端）";
+      bd.onclick = () => deleteJob(r.key);
+      tags.appendChild(bd);
+
       d.appendChild(tags);
 
       list.appendChild(d);
@@ -256,9 +300,21 @@ $("copy").addEventListener("click", async () => {
   }
 });
 
-$("clear").addEventListener("click", () => {
-  if (!confirm("清空全部 " + CACHE.length + " 条？建议先导出备份。")) return;
-  chrome.storage.local.set({ jds: [] }, load);
+$("clear").addEventListener("click", async () => {
+  const sync = await getSyncSettings();
+  const willSyncDelete = isSyncConfigured(sync);
+  const extra = willSyncDelete
+    ? "\n\n下次同步时这些记录也会从云端删掉。"
+    : "\n\n（还没配置云端同步，只删本地。）";
+  if (!confirm("清空全部 " + CACHE.length + " 条？建议先导出 JSON 备份。" + extra)) return;
+
+  // 清空同样要记墓碑——否则清完本地，云端还留着全部记录，
+  // 工作台照样显示它们，而你以为已经清干净了。
+  if (willSyncDelete) {
+    for (const r of CACHE) await addTombstone(r.key);
+  }
+  await chrome.storage.local.set({ jds: [] });
+  load();
 });
 
 $("panel").addEventListener("click", async () => {

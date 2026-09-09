@@ -4,6 +4,7 @@ import {
 } from "./lib/llm.js";
 import {
   getSyncSettings, isSyncConfigured, isLoggedIn, login, logout, syncAll, explainSyncError,
+  getTombstones,
 } from "./lib/syncSupabase.js";
 
 const $ = (id) => document.getElementById(id);
@@ -211,19 +212,35 @@ $("syncLogout").onclick = async () => {
 
 $("syncNow").onclick = async () => {
   const { jds = [] } = await chrome.storage.local.get({ jds: [] });
-  if (!jds.length) {
+  const tombs = await getTombstones();
+  // 本地空但有待删墓碑时也要能同步——不然"删完最后一条"这个动作
+  // 永远推不到云端，云端那条就成了永久的鬼影。
+  if (!jds.length && !tombs.length) {
     $("syncProgress").textContent = "本地还没有采集任何 JD。";
     return;
   }
   $("syncNow").disabled = true;
-  $("syncProgress").textContent = `同步中… 0/${jds.length}`;
+  $("syncProgress").textContent = tombs.length
+    ? `同步中… 先处理 ${tombs.length} 条删除`
+    : `同步中… 0/${jds.length}`;
   const res = await syncAll(jds, (done, total) => {
     $("syncProgress").textContent = `同步中… ${done}/${total}`;
   });
   $("syncNow").disabled = false;
-  $("syncProgress").textContent = res.ok
-    ? `✓ 已同步 ${res.synced} 条`
-    : `✗ 同步到第 ${res.synced} 条时失败：${res.reason || ""}`;
+  if (res.ok) {
+    const parts = [`✓ 已同步 ${res.synced} 条`];
+    if (res.deleted) parts.push(`推送删除 ${res.deleted} 条`);
+    // 工作台/其他设备删掉的记录，本地也跟着清掉了——必须说出来，
+    // 否则用户会以为"我的记录莫名少了几条"
+    if (res.pulledRemoved) parts.push(`本地清掉 ${res.pulledRemoved} 条（别处已删）`);
+    if (res.pulledRevived) parts.push(`${res.pulledRevived} 条重新采集后已恢复`);
+    const left = await getTombstones();
+    // 墓碑没清完要说出来：那意味着云端还留着已经被本地删掉的记录
+    if (left.length) parts.push(`⚠ ${left.length} 条删除未生效，下次同步重试`);
+    $("syncProgress").textContent = parts.join(" · ");
+  } else {
+    $("syncProgress").textContent = `✗ 同步到第 ${res.synced} 条时失败：${res.reason || ""}`;
+  }
 };
 
 async function loadSync() {
