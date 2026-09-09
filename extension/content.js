@@ -1,4 +1,13 @@
-/* JD 采集器 · 内容脚本  v1.6.1
+/* JD 采集器 · 内容脚本  v1.6.2
+ *
+ * v1.6.2（2026-09-10）：修掉 v1.6 字形还原从来没生效过的原因。
+ *   接线写成了 deglyph(clean(text))，而 clean() 里有一句 .replace(PUA, "")
+ *   会把私有区字符整段删掉（那是为了不把乱码存进 JD 正文）。
+ *   于是要还原的字符在还原之前就被删干净了，hasPua 永远 false、
+ *   解码器一次都没被调用。表现就是「还是薪资待补」，而且因为 note 只在
+ *   getDecoder 里设，连失败原因都记不上——排查时看到的是一片空白。
+ *   改成 clean(deglyph(text))，并把「模块没加载」的原因移到 deglyph 里记。
+ *   rawSalaryText 同样不能走 clean，否则「这条是否靠还原」永远判成 false。
  *
  * v1.6.1（2026-09-10）：把「为什么没还原」说给人看，并修掉一个会把
  *   还原结果误判成冲突的 bug。
@@ -254,7 +263,14 @@
 
   /** 文本里有私有区字符就试着还原；不可用时原样返回。 */
   function deglyph(text) {
-    if (!text || !GLYPH || !GLYPH.hasPua(text)) return text;
+    if (!text) return text;
+    if (!GLYPH) {
+      // 原因要在这里记，不能只记在 getDecoder 里：GLYPH 为空时根本走不到
+      // getDecoder，那条 note 就永远设不上，界面上看不出哪里坏了。
+      glyphNote = "字形还原模块没加载（改过 manifest 要在 chrome://extensions 重载插件，再刷新页面）";
+      return text;
+    }
+    if (!GLYPH.hasPua(text)) return text;
     const d = getDecoder();
     return d ? d(text) : text;
   }
@@ -681,13 +697,14 @@
   /** 在 root 里按选择器找薪资元素，跳过相似职位/推荐位。
    *  独立详情页上 root 是整个 document，而页脚的推荐岗位也带 .salary，
    *  直接 querySelector 有抓到别人薪资的风险。 */
-  /** 未经还原的薪资原文。只用来判断「这条是不是靠还原才拿到数字的」。 */
+  /** 未经还原的薪资原文。只用来判断「这条是不是靠还原才拿到数字的」。
+   *  刻意不走 clean()——clean 会把私有区字符删掉，那判断就永远是 false。 */
   function rawSalaryText(root) {
     const scopeRoot = root && root.querySelectorAll ? root : document;
     for (const sel of [".job-salary", ".salary", ".job-limit .red", ".job-banner .salary"]) {
       for (const el of scopeRoot.querySelectorAll(sel)) {
         if (inReco(el)) continue;
-        const t = clean(el.textContent);
+        const t = (el.textContent || "").replace(/\s+/g, " ").trim();
         if (t) return t;
       }
     }
@@ -701,10 +718,15 @@
         if (inReco(el)) continue;
         // textContent 而不是 innerText：私有区字符两者一样，但 textContent
         // 不受 CSS 影响，也不会因为元素在视口外而拿到空串。
-        const t = clean(el.textContent);
-        // 私有区字符在这里就地还原。还原不了就原样返回（"-K·薪"），
-        // 下游 /\d/ 测不到数字，照旧走「薪资待补」。
-        if (t) return deglyph(t);
+        //
+        // ⚠️ 顺序必须是「先还原，再 clean」。clean() 里有一句
+        // .replace(PUA, "") 会把私有区字符整段删掉（那是为了不把乱码
+        // 存进 JD 正文）。v1.6 刚上线时我写成了 deglyph(clean(...))，
+        // 于是要还原的字符在还原之前就被删干净了，hasPua 永远 false、
+        // 解码器一次都没被调用——表现就是「还是薪资待补」，而且连
+        // 失败原因都记不上。
+        const t = clean(deglyph(el.textContent || ""));
+        if (t) return t;
       }
     }
     return "";
@@ -932,7 +954,7 @@
   btn.title = "存下当前打开的这条 JD（Alt+S）";
   // 版本打进 DOM：排查时能直接确认浏览器里跑的是哪个构建，
   // 不用靠猜「到底重载过没有」。
-  btn.dataset.v = "1.6.1";
+  btn.dataset.v = "1.6.2";
   btn.innerHTML = '<span class="jdc-plus">+</span><span class="jdc-label">存 JD</span>';
   btn.addEventListener("click", (e) => {
     e.preventDefault();
