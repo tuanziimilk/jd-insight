@@ -2,24 +2,42 @@
 
 .jdc-btn {
   position: fixed;
-  right: 22px;
-  bottom: 96px;
+  /* 位置由 content.js 从 chrome.storage 读出来后设置 left/top。
+     这里不给默认坐标，而是先隐藏——否则按钮会先在 CSS 位置画一帧、
+     再跳到记住的位置，那一下闪动很明显。 */
+  visibility: hidden;
+  left: 0;
+  top: 0;
   z-index: 2147483000;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 10px 16px;
+  gap: 7px;
+  /* 比原来大一档：原来 10/16 的内距在 BOSS 那种信息密度的页面上太不显眼，
+     而这是整个扩展唯一需要被看见的控件。 */
+  padding: 12px 18px;
   border: 1px solid #0d5c73;
   border-radius: 100px;
   background: #0d5c73;
   color: #eaf4f7;
-  font: 500 13px/1.2 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-  cursor: pointer;
-  box-shadow: 0 6px 20px -8px rgba(0, 0, 0, 0.5);
-  transition: transform 0.12s, background 0.12s;
+  font: 600 14px/1.2 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  cursor: grab;
+  /* 白色描边：BOSS 的页面底色有深有浅（详情页白底、地图区彩色），
+     只靠投影在浅色区几乎看不出边界。 */
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9), 0 6px 22px -6px rgba(0, 0, 0, 0.45);
+  transition: transform 0.12s, background 0.12s, box-shadow 0.12s;
+  user-select: none;
+  touch-action: none; /* 不然移动端拖动会被浏览器当成滚动 */
 }
 
-.jdc-btn:hover {
+/* 拖动中：跟手、去掉过渡（否则会有橡皮筋般的延迟感） */
+.jdc-btn.jdc-dragging {
+  cursor: grabbing;
+  transition: none;
+  transform: scale(1.04);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.95), 0 12px 30px -6px rgba(0, 0, 0, 0.55);
+}
+
+.jdc-btn:hover:not(.jdc-dragging) {
   transform: translateY(-1px);
   background: #0f6c86;
 }

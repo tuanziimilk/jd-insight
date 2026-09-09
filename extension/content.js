@@ -1,4 +1,14 @@
-/* JD 采集器 · 内容脚本  v1.3
+/* JD 采集器 · 内容脚本  v1.4
+ *
+ * v1.4（2026-09-09）：按钮位置改成「拖到哪就记在哪」。
+ *   原来是 CSS 固定 right:22px / bottom:96px，实测在 BOSS 详情页右下角
+ *   正好压在它自己那摞悬浮组件（回到顶部/客服/反馈）上，看不见也点不准。
+ *   换一个「更好的固定位置」是没有终点的——屏幕尺寸、页面缩放、BOSS 改版
+ *   都会让它重新撞上，所以不再由我猜：位置存在 chrome.storage.local.btnPos，
+ *   用户拖一次就定死。默认落在右侧边缘、视口 62% 高度处（这块区域在详情页
+ *   上是空的，且离底部那摞组件足够远）。
+ *   拖动判定用 4px 阈值，低于阈值仍然算点击（否则手抖就存不上 JD）；
+ *   拖完那一次的 click 用捕获阶段拦掉，避免「松手即误存」。
  *
  * v1.3 修复（2026-09-09 用浏览器自动化在真实 BOSS 页面上实测后）：
  *   - ⚠️ 公司名一直是空的（详情页）。原逻辑假设「时代传浮 · 招聘者」在同一行，
@@ -507,6 +517,100 @@
     e.preventDefault();
     e.stopPropagation();
     safeSave();
+  });
+
+  /* ── 位置：可拖动 + 记住 ────────────────────────────────
+   *
+   * 原来固定在 right:22px / bottom:96px，正好撞进 BOSS 自己那一摞
+   * 悬浮组件（客服、反馈、回到顶部）里，被挡住看不见。
+   *
+   * 但换一个"更好的固定位置"是没有终点的：屏幕尺寸、缩放比例、
+   * BOSS 改版都会让它重新撞上。所以改成拖到哪就记在哪——
+   * 位置这件事交给用户，比我猜一百次可靠。
+   *
+   * 默认位置改到右侧垂直居中偏下：这个区域在 BOSS 的详情页上是空的，
+   * 而且离底部那摞组件足够远。
+   */
+  const POS_KEY = "btnPos";
+  const BTN_MARGIN = 12;
+
+  function clamp(pos) {
+    const w = btn.offsetWidth || 96;
+    const h = btn.offsetHeight || 40;
+    return {
+      left: Math.min(Math.max(pos.left, BTN_MARGIN), window.innerWidth - w - BTN_MARGIN),
+      top: Math.min(Math.max(pos.top, BTN_MARGIN), window.innerHeight - h - BTN_MARGIN),
+    };
+  }
+
+  function applyPos(pos) {
+    const p = clamp(pos);
+    btn.style.left = p.left + "px";
+    btn.style.top = p.top + "px";
+    btn.style.right = "auto";
+    btn.style.bottom = "auto";
+  }
+
+  function defaultPos() {
+    const w = btn.offsetWidth || 96;
+    return { left: window.innerWidth - w - 20, top: Math.round(window.innerHeight * 0.62) };
+  }
+
+  chrome.storage.local.get({ [POS_KEY]: null }, (res) => {
+    applyPos(res[POS_KEY] || defaultPos());
+    btn.style.visibility = "visible";
+  });
+
+  /* 拖动。用 pointer 事件一套管鼠标和触控。
+   * ⚠️ 关键细节：拖动超过 4px 才算拖，否则普通点击会被当成拖动、
+   * 松手时不触发保存——那等于把按钮点坏了。 */
+  let drag = null;
+  btn.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    const r = btn.getBoundingClientRect();
+    drag = { dx: e.clientX - r.left, dy: e.clientY - r.top, moved: false, x0: e.clientX, y0: e.clientY };
+    btn.setPointerCapture(e.pointerId);
+  });
+  btn.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    if (!drag.moved && Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 4) return;
+    drag.moved = true;
+    btn.classList.add("jdc-dragging");
+    applyPos({ left: e.clientX - drag.dx, top: e.clientY - drag.dy });
+  });
+  btn.addEventListener("pointerup", (e) => {
+    if (!drag) return;
+    const wasDrag = drag.moved;
+    drag = null;
+    btn.classList.remove("jdc-dragging");
+    btn.releasePointerCapture(e.pointerId);
+    if (wasDrag) {
+      // 拖完紧接着会来一个 click，那一下不该触发保存。
+      // ⚠️ 标记必须在这里设：另写一个 pointerup 监听器去判断 .jdc-dragging
+      // 是行不通的——这个handler 已经把那个 class 摘了，而监听器按注册顺序跑。
+      btn.dataset.justDragged = "1";
+      const r = btn.getBoundingClientRect();
+      chrome.storage.local.set({ [POS_KEY]: { left: r.left, top: r.top } });
+      toast("按钮位置已记住（随时可再拖）", "ok");
+    }
+  });
+  // 捕获阶段拦掉拖动后的那一次 click
+  btn.addEventListener(
+    "click",
+    (e) => {
+      if (btn.dataset.justDragged === "1") {
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        btn.dataset.justDragged = "";
+      }
+    },
+    true
+  );
+
+  // 窗口变小时把按钮拉回可视区，否则它会跑到屏幕外再也点不到
+  window.addEventListener("resize", () => {
+    const r = btn.getBoundingClientRect();
+    applyPos({ left: r.left, top: r.top });
   });
 
   function mount() {
