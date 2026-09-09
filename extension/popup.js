@@ -6,7 +6,17 @@
 
 import { STATUS_CYCLE, FAIL_BUCKETS, pushStatus, isTerminal } from "./lib/pipeline.js";
 import { parseSalary, formatSalary } from "./lib/salary.js";
-import { addTombstone, getSyncSettings, isSyncConfigured } from "./lib/syncSupabase.js";
+import {
+  addTombstone,
+  getSyncSettings,
+  isSyncConfigured,
+  isLoggedIn,
+  getTombstones,
+  getLastSync,
+  countPending,
+  syncAll,
+  explainSyncError,
+} from "./lib/syncSupabase.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -279,6 +289,8 @@ function load() {
   chrome.storage.local.get({ jds: [] }, ({ jds }) => {
     CACHE = jds;
     render();
+    // 条数变了，"多少条没推"也跟着变——同步状态必须跟着列表一起刷。
+    paintSync();
   });
 }
 
@@ -325,6 +337,125 @@ $("panel").addEventListener("click", async () => {
   } catch (e) {
     $("panel").textContent = "请点工具栏图标旁的侧边栏按钮";
   }
+});
+
+
+/* ── 云端同步 ──────────────────────────────────────────────
+ * 原来只在设置页。但「采集完 → 同步 → 工作台能看到」是主链路，
+ * 而设置页是个一年去两次的地方。逻辑不重写，直接复用
+ * lib/syncSupabase.js 里那套（设置页也用它），只是把入口挪到这儿。 */
+
+/** 把 ISO 时刻说成人话。刻意不引日期库：只需要"多久以前"这一种表达。 */
+function ago(iso) {
+  if (!iso) return "";
+  const ms = Date.now() - Date.parse(iso);
+  if (!Number.isFinite(ms)) return "";
+  if (ms < 60e3) return "刚刚";
+  const m = Math.floor(ms / 60e3);
+  if (m < 60) return m + " 分钟前";
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + " 小时前";
+  const d = Math.floor(h / 24);
+  return d + " 天前";
+}
+
+/** 打同步状态行。四种状态各有各的下一步动作，不能都写成"点一下同步"。 */
+async function paintSync() {
+  const el = $("syncline");
+  const btn = $("sync");
+  el.className = "syncline";
+  const s = await getSyncSettings();
+
+  if (!isSyncConfigured(s)) {
+    btn.disabled = true;
+    el.classList.add("need");
+    el.textContent = "未配置云端 · ";
+    el.append(mkOptionsLink("去设置"));
+    return;
+  }
+  if (!isLoggedIn(s)) {
+    btn.disabled = true;
+    el.classList.add("need");
+    // refreshToken 还在但过期了，和"从没登录过"是两件事，
+    // 前者只需要重输一次密码，后者还要填 URL/key。说清楚省一轮试错。
+    el.textContent = (s.refreshToken ? "登录已过期" : "未登录") + " · ";
+    el.append(mkOptionsLink(s.refreshToken ? "重新登录" : "去登录"));
+    return;
+  }
+
+  const { fresh, deletes, neverSynced } = await countPending(CACHE);
+  btn.disabled = !CACHE.length && !deletes;
+
+  const parts = [];
+  parts.push(neverSynced ? "还没同步过" : "上次同步 " + ago(await getLastSync()));
+  // 措辞是「新采集未推」而不是「待同步」：改动（补薪资、改意向）不更新 ts，
+  // 数不出来。见 countPending 的注释——这个数字是下限不是总数。
+  if (fresh) parts.push(fresh + " 条新采集未推");
+  if (deletes) parts.push(deletes + " 条删除未推");
+  if (!fresh && !deletes && !neverSynced) parts.push("已是最新");
+  el.textContent = parts.join(" · ");
+  if (fresh || deletes || neverSynced) el.classList.add("need");
+}
+
+/** 打开设置页的链接。用 <a> 而不是 button：它是导航不是操作。 */
+function mkOptionsLink(text) {
+  const a = document.createElement("a");
+  a.href = "#";
+  a.textContent = text;
+  a.addEventListener("click", (e) => {
+    e.preventDefault();
+    chrome.runtime.openOptionsPage();
+  });
+  return a;
+}
+
+$("sync").addEventListener("click", async () => {
+  const btn = $("sync");
+  const el = $("syncline");
+  const tombs = await getTombstones();
+  // 本地空但有待删墓碑时也要能同步——否则"删掉最后一条"这个动作
+  // 永远推不到云端，云端那条就成了永久的鬼影。
+  if (!CACHE.length && !tombs.length) {
+    el.className = "syncline";
+    el.textContent = "本地还没有采集任何 JD";
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = "同步中…";
+  el.className = "syncline";
+  el.textContent = tombs.length ? "先处理 " + tombs.length + " 条删除…" : "0/" + CACHE.length;
+
+  let res;
+  try {
+    res = await syncAll(CACHE, (done, total) => {
+      el.textContent = done + "/" + total;
+    });
+  } catch (e) {
+    res = { ok: false, synced: 0, reason: explainSyncError((e && e.message) || "未知错误") };
+  }
+  btn.textContent = "同步到云端";
+
+  if (!res.ok) {
+    el.className = "syncline bad";
+    el.textContent = "同步到第 " + res.synced + " 条时失败：" + (res.reason || "");
+    btn.disabled = false;
+    return;
+  }
+
+  // 成功也要把"顺带发生了什么"说出来。尤其是 pulledRemoved——
+  // 那是别处删掉、本地跟着清掉的记录，不说的话用户会以为记录莫名少了。
+  const parts = ["✓ 已同步 " + res.synced + " 条"];
+  if (res.deleted) parts.push("推送删除 " + res.deleted);
+  if (res.pulledRemoved) parts.push("本地清掉 " + res.pulledRemoved + " 条（别处已删）");
+  if (res.pulledRevived) parts.push(res.pulledRevived + " 条已恢复");
+  const left = await getTombstones();
+  if (left.length) parts.push("⚠ " + left.length + " 条删除未生效，下次重试");
+  el.textContent = parts.join(" · ");
+
+  // 云端可能删掉了本地记录，列表要重新读一遍。
+  // load() 里会再调 paintSync()，状态行随之刷新——但那会盖掉上面这句结果，
+  // 所以先让它显示 2.5 秒。
+  setTimeout(() => load(), 2500);
 });
 
 load();

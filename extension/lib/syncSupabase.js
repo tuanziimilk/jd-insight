@@ -342,7 +342,34 @@ export async function syncAll(jobs, onProgress) {
     onProgress?.(synced, jobs.length);
   }
 
+  // 记下同步时刻。这是"还有多少没推上去"唯一可信的基准——
+  // 没有它，界面只能说"点一下同步"，说不出到底该不该点。
+  await chrome.storage.local.set({ lastSyncAt: new Date().toISOString() });
+
   return { ok: true, synced, deleted, pulledRemoved: pulled.removed, pulledRevived: pulled.revived };
+}
+
+/** 上次同步成功的时刻（ISO，没同步过就是 ""）。 */
+export async function getLastSync() {
+  const { lastSyncAt = "" } = await chrome.storage.local.get({ lastSyncAt: "" });
+  return lastSyncAt;
+}
+
+/**
+ * 还有多少东西没推到云端。
+ *
+ * ⚠️ 这个数字是**下限，不是总数**，界面上的措辞必须跟着它：
+ *   - 新采集的能算准：记录的 ts 就是采集时刻，晚于上次同步就一定没推过。
+ *   - 待删的能算准：墓碑本身就是"待推的删除"。
+ *   - **改动算不准**：补薪资、改意向都不更新 ts，所以改过但没重推的记录
+ *     数不出来。所以文案只说「N 条新采集未推」，不敢说「N 条待同步」——
+ *     后者是个我兑现不了的承诺。
+ */
+export async function countPending(jobs) {
+  const last = await getLastSync();
+  const tombs = await getTombstones();
+  const fresh = last ? (jobs || []).filter((j) => j.ts && j.ts > last).length : (jobs || []).length;
+  return { fresh, deletes: tombs.length, neverSynced: !last };
 }
 
 export function explainSyncError(msg) {

@@ -55,6 +55,23 @@
   }
   .row.mini button:hover:not(:disabled) { color: var(--ink); border-color: var(--acc); }
 
+  /* 同步状态行。紧贴按钮下方、等宽小字。
+     它要能表达四种状态：未配置 / 未登录 / 已是最新 / 有 N 条没推。
+     配色是无彩的，所以「需要注意」只能靠 --warn 这一点颜色，
+     不能再靠加粗或图标堆——那会变成噪声。 */
+  .syncline {
+    margin: -3px 0 10px;
+    font: 10.5px/1.5 var(--mono);
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 16px;
+  }
+  .syncline.need { color: var(--warn); }
+  .syncline.bad { color: var(--stop); }
+  .syncline a { font: inherit; color: inherit; }
+
   .list {
     max-height: 200px;
     overflow-y: auto;
@@ -113,13 +130,21 @@
 </head>
 <body>
   <h1>JD 采集器</h1>
-  <p class="sub">在岗位详情页点右下角「存 JD」，或按 <code>Alt+S</code></p>
+  <p class="sub">鼠标在岗位卡上停一下，点「存 JD」，或按 <code>Alt+S</code>。<br>按钮可以拖到任意位置，会记住。</p>
 
   <div class="count"><b id="n">0</b><span>条已存</span></div>
 
   <div class="row">
     <button id="panel" class="primary">打开情报台（问它）</button>
   </div>
+
+  <!-- 同步原来只在设置页。可是「采集完 → 同步 → 工作台能看到」是主链路，
+       而设置页是个一年去两次的地方。所以提到这里，并且带一行状态——
+       一个不说"该不该点"的同步按钮，等于让人每次都盲点一遍。 -->
+  <div class="row">
+    <button id="sync">同步到云端</button>
+  </div>
+  <p class="syncline" id="syncline">检查同步状态…</p>
   <div class="row mini">
     <button id="export">jd_raw.txt</button>
     <button id="copy">复制全部</button>
