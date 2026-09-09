@@ -1,4 +1,31 @@
-/* JD 采集器 · 内容脚本  v1.4
+/* JD 采集器 · 内容脚本  v1.5
+ *
+ * v1.5（2026-09-09，在真实 BOSS 列表页上实测后写的）：
+ *   存 JD 现在抓「鼠标最后停留过的那张卡」，面板不是那条就先自动切过去，
+ *   不用再手工点开一遍。
+ *
+ *   ⚠️ 实测顺带发现一个静默错数据：BOSS 的 /web/geek/jobs 一落地就把
+ *   **列表第一条**预加载进右侧面板，而且从不给任何卡片加 .selected
+ *   （15 张卡的 class 完全一样）。也就是说 v1.4 及之前，你在看第 7 条、
+ *   按下存 JD，存下来的是第 1 条，界面上没有任何提示。
+ *   这同时说明 getJobId 里那个「取 .selected 卡」的兜底在现在的版面上是死代码
+ *   （留着是给老版布局兜底，不是现在生效的路径）。
+ *
+ *   ⚠️ 更严重的一个（也是 v1.3 我自己埋的）：BOSS 列表页的外层容器叫
+ *   div.job-recommend-result > div.recommend-result-job，v1.3 为了跳过
+ *   「相似职位」加的 [class*='recommend'] 通配命中了**整页外壳**，
+ *   于是 pick() 把标题/正文/薪资全部当成推荐位跳过。实测同一个面板：
+ *   带过滤时标题和正文都是空串，不带过滤才拿到「Ai产品经理（教育行业）」+
+ *   完整职责。也就是说在列表页上按存 JD 一直报「没抓到岗位内容」，
+ *   面板其实开着好好的。改成 inReco()：命中 RECO_SEL 的祖先如果把详情区
+ *   整个包在里面，它就是页面外壳而不是推荐位。
+ *
+ *   「切到哪一条」只认真实信号：鼠标**停留** 400ms 以上的那张卡。列表上有
+ *   15~30 张，猜错就是存下一条你从没看过的岗位；而且鼠标从列表移到按钮的
+ *   路上会横穿好几张卡，一掠过就记同样会存错，所以要停留判定。
+ *   拿不到这个信号就退回用面板里现有的内容，不替你选第一张。
+ *   等面板的判据是「面板里的 job_detail id == 目标 id」，不是「文字够长」——
+ *   换面板时旧内容还在，长度判据会骗人。
  *
  * v1.4（2026-09-09）：按钮位置改成「拖到哪就记在哪」。
  *   原来是 CSS 固定 right:22px / bottom:96px，实测在 BOSS 详情页右下角
@@ -29,7 +56,10 @@
  *         正文里 78 个私有区字符。这种页面上自动识别不可能成功，只能手工补。
  *
  * 设计原则：
- *   1. 只读取「当前页面已经渲染出来的内容」——不发请求、不翻页、不模拟点击、不破解字体。
+ *   1. 只读取「当前页面已经渲染出来的内容」——不发请求、不翻页、不破解字体。
+ *      v1.5 起有一个例外：会派发一次 click 把详情面板切到鼠标指着的那条
+ *      （见 openCard）。边界是「只做用户本来要自己做的那一下」，
+ *      绝不点投递 / 立即沟通这类有外部后果的按钮。
  *   2. 字段提取限定在「详情面板」范围内，避免抓到左侧列表的第一张卡片。
  *   3. 无论字段抓得准不准，都额外存一份整页纯文本（pageText）兜底——
  *      真正的字段解析交给 analyze_jd.py，那边改规则比改插件容易。
@@ -117,8 +147,176 @@
 
   /* 相似职位/推荐位的容器。这些区块里放的是**别的岗位**，
    * 所有字段提取都必须跳过它们。 */
-  const RECO_CONTAINER =
+  const RECO_SEL =
     ".similar-job-list, .similar-job, .job-recommend, .recommend-job, .look-more, [class*='similar'], [class*='recommend']";
+
+  /* 详情区自己的容器。用来识别「假推荐位」，见下面 inReco 的注释。 */
+  const DETAIL_SEL = ".job-detail-box, .job-detail-container, .job-detail-body, .job-primary";
+
+  /**
+   * el 在推荐位里吗。
+   *
+   * ⚠️ 不能直接写 el.closest(RECO_SEL)——这是 v1.3 埋的一个把整页打瞎的 bug，
+   * 2026-09-09 在真实列表页上才发现：BOSS 的 /web/geek/jobs 外层容器叫
+   * div.job-recommend-result > div.recommend-result-job，于是 [class*='recommend']
+   * 命中了**整页外壳**，pick() 把标题、正文、薪资全部当成推荐位跳过，
+   * 结果面板明明开着，存 JD 却一直报「没抓到岗位内容」。
+   *
+   * 判据改成：命中 RECO_SEL 的祖先，如果它把详情区整个包在里面，
+   * 那它是页面外层容器而不是推荐位。真正的推荐位里不会有详情面板。
+   * 这个判据不依赖 BOSS 的具体类名，比继续往选择器里打补丁稳。
+   */
+  function inReco(el) {
+    let n = el && el.closest ? el.closest(RECO_SEL) : null;
+    while (n) {
+      if (!n.querySelector(DETAIL_SEL)) return true;
+      const up = n.parentElement;
+      n = up && up.closest ? up.closest(RECO_SEL) : null;
+    }
+    return false;
+  }
+
+  /* 左侧列表里的一张岗位卡。 */
+  const CARD_SEL =
+    "li.job-card-box, .job-card-box, .job-card-wrapper, [class*='job-card-box'], [class*='job-card-wrapper']";
+
+  /* 鼠标最后停留过的那张卡。
+   *
+   * 这是本文件里最重要的一个信号，理由见 ensurePanel 的注释：
+   * BOSS 的列表页一落地就把**第一条**岗位预加载进右侧面板，而且从不给
+   * 任何卡片加 .selected（2026-09-09 在真实页面上实测，15 张卡 class 全一样）。
+   * 所以「面板里开着哪条」和「人正在看哪条」是两件事，只认面板就会在
+   * 「你在看第 7 条」的时候静默存下第 1 条。
+   * 鼠标划过是能拿到的唯一真实意图信号：翻列表时指针必然停在正在看的那条上。
+   * 而且正常点开一条之后指针就在那张卡上，所以这个信号和「手动点开」不冲突。 */
+  let lastCard = null;
+  let hoverTimer = null;
+  /* 要停留 HOVER_DWELL 毫秒才算「在看这条」。
+   *
+   * 不能一掠过就记：鼠标从列表移到存 JD 按钮的路上会横穿好几张卡，
+   * 最后掠过的那张会被当成你在看的那条——那就又变成静默存错了。
+   * 停留判定把「路过」和「在读」分开。400ms 是读一行岗位名的量级，
+   * 快速划过达不到。 */
+  const HOVER_DWELL = 400;
+  document.addEventListener(
+    "mouseover",
+    (e) => {
+      const t = e.target;
+      if (!t || !t.closest) return;
+      if (t.closest("#jdc-btn, .jdc-toast")) return; // 自己的 UI 不算，也别取消已有的选择
+      const c = t.closest(CARD_SEL);
+      if (!c || inReco(c)) {
+        // 移出卡片区：取消待定的计时，但保留上一次已经确认的那张。
+        clearTimeout(hoverTimer);
+        return;
+      }
+      if (c === lastCard) return;
+      clearTimeout(hoverTimer);
+      hoverTimer = setTimeout(() => {
+        lastCard = c;
+      }, HOVER_DWELL);
+    },
+    true
+  );
+
+  /** 从一个节点里取岗位 id（卡片和面板都有 job_detail 链接）。 */
+  function jobIdIn(node) {
+    if (!node || !node.querySelectorAll) return "";
+    for (const a of node.querySelectorAll('a[href*="job_detail"]')) {
+      if (inReco(a)) continue;
+      const m = (a.getAttribute("href") || "").match(JOB_ID_RE);
+      if (m) return m[1];
+    }
+    return "";
+  }
+
+  const cardName = (card) =>
+    clean((card.querySelector(".job-name") || card).innerText || "").slice(0, 20);
+
+  /** 触发一张卡打开右侧面板。
+   *
+   * ⚠️ 这一步违反了本文件开头设计原则第 1 条「不模拟点击」。是有意为之：
+   * 让人每次先手点一遍卡片，摩擦全落在这个工具最频繁的动作上。
+   * 破例的边界划在这里——只派发一次 click 到岗位名上，不翻页、不发请求、
+   * 不点任何「投递 / 立即沟通」这类有外部后果的按钮。 */
+  function openCard(card) {
+    const el = card.querySelector(".job-name") || card;
+    // 卡片里嵌着 <a href="/job_detail/...">，冒泡上去会跳走。
+    // 捕获阶段拦掉 a 的默认行为，但不 stopPropagation——
+    // BOSS 自己绑在卡片上的「换面板」处理器还要照常跑。
+    const block = (ev) => {
+      const a = ev.target && ev.target.closest && ev.target.closest("a");
+      if (a) ev.preventDefault();
+    };
+    document.addEventListener("click", block, true);
+    try {
+      el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+    } finally {
+      // 同步派发，事件在 dispatchEvent 返回前就跑完了，可以立刻摘掉。
+      document.removeEventListener("click", block, true);
+    }
+  }
+
+  /** 等面板真的换成 wantId 那条。
+   *
+   * 判据是「面板里的 job_detail 链接 id == 想要的 id」，不是「面板文字够长」。
+   * 长度判据在这里会骗人：换面板过程中旧内容还在，长度一直是够的。 */
+  function waitPanelJob(wantId, ms) {
+    const t0 = Date.now();
+    return new Promise((resolve) => {
+      const tick = () => {
+        if (jobIdIn(document.querySelector(".job-detail-box")) === wantId) return resolve(true);
+        if (Date.now() - t0 > ms) return resolve(false);
+        setTimeout(tick, 100);
+      };
+      tick();
+    });
+  }
+
+  /** 面板里已经有能用的内容了吗（老版整页布局也算）。 */
+  function panelReady() {
+    const s = scope();
+    return s.layout === "panel" || s.layout === "page";
+  }
+
+  /**
+   * 保证「面板里开着的」就是「人正在看的」。返回 {ok, reason, switched, label}。
+   *
+   * 独立详情页（/job_detail/xxx.html）没有列表，直接放过。
+   */
+  async function ensurePanel() {
+    if (JOB_ID_RE.test(location.pathname)) return { ok: true, switched: false };
+
+    const card = lastCard && lastCard.isConnected ? lastCard : null;
+    const panelId = jobIdIn(document.querySelector(".job-detail-box"));
+
+    // 没有悬浮信号：面板里有内容就用它（人看到的就是它），否则明说。
+    if (!card) {
+      if (panelReady()) return { ok: true, switched: false };
+      return { ok: false, reason: "右边没有打开的岗位详情 —— 鼠标划过一条岗位再点存 JD" };
+    }
+
+    const wantId = jobIdIn(card);
+    if (!wantId) {
+      // 卡片上取不到 id，不猜。面板有内容就退回用面板。
+      if (panelReady()) return { ok: true, switched: false };
+      return { ok: false, reason: "这张卡上没有岗位链接 —— 手动点开它再存" };
+    }
+    if (wantId === panelId) return { ok: true, switched: false };
+
+    const label = cardName(card);
+    toast("正在打开「" + label + "」…", "warn");
+    openCard(card);
+    if (!(await waitPanelJob(wantId, 5000))) {
+      return {
+        ok: false,
+        reason: "面板没换到「" + label + "」—— 手动点开它再存，别存错一条",
+      };
+    }
+    // id 对上了但字段可能还在渲染，等一下再抓。
+    await new Promise((r) => setTimeout(r, 300));
+    return { ok: true, switched: true, label: label, wantId: wantId };
+  }
 
   /**
    * 只在 root 内找，找不到返回空——绝不回退到全局。
@@ -138,7 +336,7 @@
         continue;
       }
       for (const el of els) {
-        if (el.closest && el.closest(RECO_CONTAINER)) continue;
+        if (inReco(el)) continue;
         const t = clean(el.innerText);
         if (t) return t;
       }
@@ -187,10 +385,15 @@
     if (fromUrl) return fromUrl[1];
 
     // ② 列表+面板布局：只在详情面板里找，且跳过推荐位。绝不回退到全局。
+    //    实测（2026-09-09）面板里唯一的 job_detail 链接是底部那个
+    //    a.more-job-btn「查看更多信息」，它指向的就是面板当前这条岗位
+    //    （和左侧对应卡片的 href 逐字符相同）。所以这条路径是有效的，
+    //    但它取到的是**面板里的**那条，前提是面板已经切到你要的岗位上——
+    //    这件事由 ensurePanel() 保证。
     const scopeRoot = root && root.querySelector ? root : null;
     if (scopeRoot) {
       for (const a of scopeRoot.querySelectorAll('a[href*="job_detail"]')) {
-        if (a.closest(RECO_CONTAINER)) continue;
+        if (inReco(a)) continue;
         const m = (a.getAttribute("href") || "").match(JOB_ID_RE);
         if (m) return m[1];
       }
@@ -198,13 +401,16 @@
 
     // ③ 面板里没有链接时，退到「左侧被选中的那张卡」——注意是 selected，
     //    不是第一张。找不到就返回空，由调用方退回 URL 做键并且不假装抓到了。
+    //    ⚠️ 实测（2026-09-09）现在的 BOSS 版面**从不给卡片加 .selected**：
+    //    15 张卡的 class 全是 job-card-box，一个不差。所以这一段在新版面上
+    //    是死代码，留着只为老版布局兜底，别指望它。
     for (const sel of [
       ".job-card-box.selected a[href*='job_detail']",
       ".job-card-wrapper.selected a[href*='job_detail']",
       "li.job-card-box.selected a[href*='job_detail']",
     ]) {
       const a = document.querySelector(sel);
-      if (a && !a.closest(RECO_CONTAINER)) {
+      if (a && !inReco(a)) {
         const m = (a.getAttribute("href") || "").match(JOB_ID_RE);
         if (m) return m[1];
       }
@@ -341,7 +547,7 @@
     const scopeRoot = root && root.querySelectorAll ? root : document;
     for (const sel of [".job-salary", ".salary", ".job-limit .red", ".job-banner .salary"]) {
       for (const el of scopeRoot.querySelectorAll(sel)) {
-        if (el.closest(RECO_CONTAINER)) continue;
+        if (inReco(el)) continue;
         const t = clean(el.innerText);
         if (t) return t;
       }
@@ -464,10 +670,26 @@
   async function save() {
     // 等薪资解析模块就绪。文件很小、只加载一次，第二次点是同步返回。
     await salReady;
+
+    // 先保证面板里开着的就是鼠标正指着的那条。BOSS 列表页一落地就把第一条
+    // 预加载进面板，只认面板会在「你在看第 7 条」时静默存下第 1 条。
+    const panel = await ensurePanel();
+    if (!panel.ok) {
+      toast(panel.reason, "warn");
+      return;
+    }
+
     let rec = extract();
 
     if (!rec.title && rec.body.length < 120) {
       toast("没抓到岗位内容 —— 先点开一个岗位的详情再存", "warn");
+      return;
+    }
+
+    // 自动切过面板时再核对一次 id。waitPanelJob 已经等到 id 相符，
+    // 这里是防「等到之后又被 BOSS 换掉」——一旦对不上宁可不存也不存错。
+    if (panel.switched && panel.wantId && rec.jobId && rec.jobId !== panel.wantId) {
+      toast("面板又被换掉了 —— 没存，手动点开「" + panel.label + "」再试", "warn");
       return;
     }
 
