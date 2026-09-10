@@ -68,20 +68,76 @@ def downscale(im, size):
 
 
 def find_monogram(path):
-    """在源图左上区域找深色像素的 bbox，即「JD」字形（避开右下的放大镜）。"""
+    """圈出「JD」字形。
+
+    ⚠️ 不能简单地"在某个矩形窗口里找深色像素"——第一版就是那么写的，
+    窗口右边界拍脑袋定在 0.74W，结果把右边放射线的一角裁了进来。
+    **任何元素只露一角，看起来就是"图标被切掉了"**，用户第一眼就发现了。
+
+    改成按结构定位，三步：
+      1. 列分布：统计每一列的深色像素数，取出连续的列区间。
+         真字形是宽而高的块（J 的钩 69px 宽、竖笔 132px、D 283px），
+         而背后那张纸的暗边只有 12px 宽、放射线的碎点只有 2px 高——
+         用"宽 >= 20 且最高列 >= 30"就能把它们全滤掉。
+      2. 上边界：整个 x 范围内最靠上的深色像素。
+      3. 下边界：**只在左半边量**。D 和放大镜在垂直方向是连着的
+         （实测中间没有空行），但左半边只有 J，不受污染；
+         字母共用一条基线，所以拿 J 的底就是整体的底。
+    """
     im = Image.open(path).convert("RGBA")
     W, H = im.size
     px = im.load()
-    x0, y0, x1, y1 = W, H, -1, -1
-    for y in range(int(H * 0.20), int(H * 0.56)):
-        for x in range(int(W * 0.25), int(W * 0.74)):
-            r, g, b, a = px[x, y]
-            if a > 128 and (r * 299 + g * 587 + b * 114) / 1000 < 110:
-                x0, x1 = min(x0, x), max(x1, x)
-                y0, y1 = min(y0, y), max(y1, y)
-    if x1 < 0:
-        raise SystemExit("在源图里找不到深色字形——换源图后需要调整这里的取值区域")
-    return im.crop((x0, y0, x1 + 1, y1 + 1))
+
+    # 只看字形所在的高度带：放大镜顶端在 0.5H 以下
+    ya, yb = int(H * 0.20), int(H * 0.50)
+
+    def dark(x, y):
+        r, g, b, a = px[x, y]
+        return a > 128 and (r * 299 + g * 587 + b * 114) / 1000 < 110
+
+    cols = []
+    for x in range(W):
+        n = 0
+        for y in range(ya, yb):
+            if dark(x, y):
+                n += 1
+        cols.append(n)
+
+    runs, start = [], None
+    for x, n in enumerate(cols + [0]):
+        if n > 0 and start is None:
+            start = x
+        elif n == 0 and start is not None:
+            w = x - start
+            if w >= 20 and max(cols[start:x]) >= 30:
+                runs.append((start, x - 1))
+            start = None
+    if not runs:
+        raise SystemExit("找不到字形。换源图后需要重新核对这里的阈值。")
+
+    x0, x1 = runs[0][0], runs[-1][1]
+
+    top = H
+    for x in range(x0, x1 + 1):
+        for y in range(int(H * 0.10), yb):
+            if dark(x, y):
+                top = min(top, y)
+                break
+
+    # 下边界只在左半边量（那里没有放大镜）
+    xmid = x0 + int((x1 - x0) * 0.45)
+    bottom = -1
+    for x in range(x0, xmid + 1):
+        for y in range(int(H * 0.62), top, -1):
+            if dark(x, y):
+                bottom = max(bottom, y)
+                break
+
+    if bottom <= top:
+        raise SystemExit("字形上下边界算反了，检查阈值")
+    print("  字形定位：x %d..%d  y %d..%d（%dx%d）"
+          % (x0, x1, top, bottom, x1 - x0 + 1, bottom - top + 1))
+    return im.crop((x0, top, x1 + 1, bottom + 1))
 
 
 def make16(path):
