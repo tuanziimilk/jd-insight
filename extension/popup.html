@@ -86,7 +86,18 @@
   }
   .item { padding: 12px; font-size: 12px; }
   .item + .item { border-top: 1px solid var(--rule); }
-  .item .t { font-weight: 600; color: var(--ink); font-size: 12.5px; line-height: 1.4; }
+  /* 两行省略。原来在 JS 里 slice(0, 26) 硬截，没有省略号——
+     那是在悄悄丢字，看的人不知道后面还有。CSS 截断会给出真正的「…」。 */
+  .item .t {
+    font-weight: 600;
+    color: var(--ink);
+    font-size: 12.5px;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
   .item .m { color: var(--ink2); font: 12px/1.5 var(--sans); }
   .item .warn { color: var(--warn); }
   .tags { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
@@ -156,7 +167,34 @@
     background: var(--card); color: var(--ink);
   }
   .salinput:focus { outline: none; box-shadow: 0 0 0 3px var(--acc-soft); }
-  .empty { padding: 22px 12px; text-align: center; color: var(--muted); font-size: 12px; }
+  /* 空状态承担首次使用的引导。⚠️ 上一轮把顶部那两行操作说明搬去设置页，
+     却没同步加强这里——结果新用户打开弹窗只看到「还没有存任何 JD」，
+     完全不知道该干什么。搬走常驻文案的前提是空状态得接住它。 */
+  .empty {
+    padding: 20px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    color: var(--muted);
+    font: 12px/1.7 var(--sans);
+  }
+  .empty b { color: var(--ink2); font-size: 12.5px; font-weight: 600; }
+
+  /* 底部渐隐。列表行高不固定，容器高度永远不会正好切在行边界上——
+     没有这道渐隐时，最后一行被切在字中间，看着像渲染坏了。
+     渐隐把"切断"读成"下面还有"。 */
+  .listwrap { position: relative; }
+  .listwrap.scrollable::after {
+    content: "";
+    position: absolute;
+    left: 1px;
+    right: 1px;
+    bottom: 1px;
+    height: 22px;
+    background: linear-gradient(to top, var(--card), transparent);
+    border-radius: 0 0 var(--r) var(--r);
+    pointer-events: none;
+  }
 
 
   /* 底栏：左边是说明入口（导航），右边是清空（不可逆操作）。
@@ -169,6 +207,9 @@
     padding-top: 12px;
     border-top: 1px solid var(--rule);
   }
+  /* ⚠️ 两者原来都是「muted + 下划线」，长得一模一样——一个是帮助、
+     一个是清掉全部数据。下划线留给导航（使用说明），清空不带下划线，
+     只在悬停时才变红并划线：它平时该是这一屏最安静的东西。 */
   .foot a { font: 12px/1.6 var(--sans); color: var(--muted); }
   .foot a:hover { color: var(--ink2); }
   #clear {
@@ -177,10 +218,13 @@
     background: none;
     border: 0;
     color: var(--muted);
+    text-decoration: none;
+  }
+  #clear:hover:not(:disabled) {
+    color: var(--stop);
     text-decoration: underline;
     text-underline-offset: 2px;
   }
-  #clear:hover:not(:disabled) { color: var(--stop); }
 </style>
 </head>
 <body>
@@ -200,12 +244,17 @@
   </div>
   <p class="syncline" id="syncline">检查同步状态…</p>
   <div class="row mini">
-    <button id="export">jd_raw.txt</button>
+    <button id="export">导出 TXT</button>
     <button id="copy">复制全部</button>
-    <button id="json">JSON 备份</button>
+    <button id="json">备份 JSON</button>
   </div>
 
-  <div class="list" id="list"><div class="empty">还没有存任何 JD</div></div>
+  <!-- 列表外面套一层是为了那道底部渐隐：滚动容器自己的 ::after 会跟着
+       内容滚走，钉不住。渐隐只在真的能滚时才加（JS 加 .scrollable），
+       否则短列表底下会挂一块说不清的灰。 -->
+  <div class="listwrap" id="listwrap">
+    <div class="list" id="list"><div class="empty"><b>还没有存任何 JD</b><span>去 BOSS 直聘的岗位列表，鼠标在一张岗位卡上停一下，点页面上的「存 JD」或按 Alt+S。</span><span>更多细节看下面的「使用说明」。</span></div></div>
+  </div>
 
   <!-- 说明全部搬到设置页。popup 每天开几十次，不该常驻两段只在头几次
        有用的文字（怎么存、导出后怎么跑脚本）。这里只留一个入口。 -->

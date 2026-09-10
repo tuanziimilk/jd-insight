@@ -20,6 +20,11 @@ import {
 
 const $ = (id) => document.getElementById(id);
 
+/* 空状态是首次使用的唯一引导（顶部那两行常驻说明已搬去设置页）。
+ * 在这里定义一次，popup.html 里那份只是首屏占位——两处各写一遍必然漂移。 */
+const EMPTY_HTML =
+  "<div class=\"empty\"><b>还没有存任何 JD</b><span>去 BOSS 直聘的岗位列表，鼠标在一张岗位卡上停一下，点页面上的「存 JD」或按 Alt+S。</span><span>更多细节看下面的「使用说明」。</span></div>";
+
 /** 取多行文本的第一行。原来定义在 toBlock() 内部，render() 里引用不到
  *  （会 ReferenceError）——提到模块作用域，两处共用一份。 */
 const firstLine = (s) => (s || "").split("\n")[0].trim();
@@ -32,6 +37,14 @@ let CACHE = [];
  * 所以数据照旧，只在渲染时换成文字标签。 */
 const INTENT_CYCLE = ["", "🔥", "👀", "❌"];
 const INTENT_LABEL = { "": "未定", "🔥": "想投", "👀": "观察", "❌": "不考虑" };
+
+/** 列表真的能滚时才挂底部渐隐。短列表底下挂一块渐变是说不清的灰。 */
+function markScrollable() {
+  const l = $("list");
+  const w = $("listwrap");
+  if (!l || !w) return;
+  w.classList.toggle("scrollable", l.scrollHeight > l.clientHeight + 2);
+}
 
 function nextIn(cycle, cur) {
   const i = cycle.indexOf(cur || "");
@@ -180,7 +193,7 @@ function render() {
   ["export", "copy", "json", "clear"].forEach((id) => ($(id).disabled = !has));
 
   if (!has) {
-    list.innerHTML = '<div class="empty">还没有存任何 JD</div>';
+    list.innerHTML = EMPTY_HTML;
     return;
   }
   list.innerHTML = "";
@@ -191,7 +204,7 @@ function render() {
       d.className = "item";
       const t = document.createElement("div");
       t.className = "t";
-      t.textContent = (r.title || "（无标题）").split("\n")[0].slice(0, 26);
+      t.textContent = (r.title || "（无标题）").split("\n")[0];
       const m = document.createElement("div");
       m.className = "m";
       const bits = [siteLabel(r.site)];
@@ -295,6 +308,7 @@ function load() {
   chrome.storage.local.get({ jds: [] }, ({ jds }) => {
     CACHE = jds;
     render();
+    markScrollable();
     // 条数变了，"多少条没推"也跟着变——同步状态必须跟着列表一起刷。
     paintSync();
   });
