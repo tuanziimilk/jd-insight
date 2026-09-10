@@ -16,7 +16,8 @@
     font: 13px/1.6 var(--sans);
   }
   h1 { margin: 0 0 3px; font-size: 14.5px; font-weight: 600; letter-spacing: -.02em; }
-  .sub { margin: 0 0 12px; font-size: 11.5px; color: var(--ink2); line-height: 1.5; }
+  /* .sub 删了：这一页没有任何元素在用它（副标题早就搬走了）。死 CSS 会让
+     下次改的人以为这里有个副标题层。popup 其余小字都是短标签，11.5px 合规。 */
 
   /* 计数。C 案的做法：沉底方框 + 大号等宽数字 + 等宽小标。
      数字是这一屏唯一的"大字"，所以它不需要颜色也能当锚点。 */
@@ -217,6 +218,8 @@
      那个词读起来是帮助文档，不是设置。想换模型的人在 popup 里
      看不到任何入口，只能先打开情报台再点齿轮。链路绕了一圈。 */
   .nav { display: flex; align-items: center; gap: 8px; }
+  /* 11px 低于 theme.css 记的 11.5px 下限，但这里放的是一个「·」——
+     它是分隔符不是文字，不需要被读。留个注，免得下次扫字号时被当成违规。 */
   .nav .dot { color: var(--rule-strong); font-size: 11px; }
   #clear {
     padding: 4px 2px;

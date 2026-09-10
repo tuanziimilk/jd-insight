@@ -28,14 +28,17 @@
   header .sp { flex: 1; }
   .ico {
     border: 1px solid var(--rule); background: var(--card); color: var(--ink2);
-    width: 26px; height: 26px; border-radius: 5px; cursor: pointer; font-size: 13px;
+    /* ⚠️ 圆角走 token。原来写死 5px —— 而 token 只有 --r=6px 和 --r-sm=4px，
+       5px 两边都不是。26px 的小控件属于 small 那一档。
+       theme.css 头部原话："radius 也做成 token，别再各写一遍"。 */
+    width: 26px; height: 26px; border-radius: var(--r-sm); cursor: pointer; font-size: 13px;
     display: grid; place-items: center; padding: 0;
   }
   .ico:hover { border-color: var(--acc); color: var(--acc); }
   .ico svg { display: block; }
   #scope {
     font-family: var(--sans); font-size: 11.5px; padding: 3px 6px;
-    border: 1px solid var(--rule); border-radius: 5px;
+    border: 1px solid var(--rule); border-radius: var(--r-sm);
     background: var(--card); color: var(--ink2); max-width: 108px;
   }
   #scope:focus { outline: none; border-color: var(--acc); }
@@ -130,7 +133,9 @@
      做成脚注样子：等宽小字 + 沉底 + 发丝边，不占用任何语义色。
      相邻两个之间必须留缝，否则 [3][7] 会糊成一坨。 */
   .cite {
-    font: 600 11px/1 var(--mono);
+    /* 11.5px 不是 11px：theme.css 记的短标签下限就是 11.5px，
+       而【JD 2】里的方头括号是 CJK 字形，11px 下已经开始糊。 */
+    font: 600 11.5px/1 var(--mono);
     color: var(--ink2);
     background: var(--sunk);
     border: 1px solid var(--rule);
@@ -162,8 +167,12 @@
     color: var(--muted);
   }
 
-    .sys {
-    align-self: center; text-align: center; font-size: 11.5px; color: var(--muted);
+  /* ⚠️ 12px 不是 11.5px。这里放的是整句中文（"还没采集 JD。去岗位详情页按
+     Alt+S 存几条。" / "跳过了，那我只能基于 JD 泛泛地说——结论会弱很多"），
+     属于 theme.css 里「需要连读的中文说明文字 ≥ 12px」那一档，
+     不是短标签。顺手把缩进也修正了（原来多缩了两格）。 */
+  .sys {
+    align-self: center; text-align: center; font-size: 12px; color: var(--muted);
     background: var(--sunk); border-radius: 100px; padding: 3px 12px;
   }
 
@@ -201,7 +210,8 @@
   /* primary / ghost / disabled 都在 theme.css 里，这儿只调尺寸 */
   button.primary { padding: 8px 13px; }
   button.ghost { color: var(--ink2); border-color: var(--rule-strong); }
-  .hint { margin: 6px 0 0; font-size: 11.5px; line-height: 1.6; color: var(--muted); }
+  /* 同 .sys：这里是整句说明（"回答只依据你采集的 JD…"），不是标签 → 12px */
+  .hint { margin: 6px 0 0; font-size: 12px; line-height: 1.6; color: var(--muted); }
 
   .dots::after {
     content: "▍"; animation: bl 1s steps(2) infinite; color: var(--acc);
@@ -255,7 +265,7 @@
 
   <div id="quick">
     <button data-q="这批 JD 里最高频的能力要求是什么？按覆盖率排">高频要求</button>
-    <button data-q="有几条 JD 要求 Discord 或 Reddit 运营经验？">统计示例</button>
+    <button data-q="有几条 JD 要求 Discord 或 Reddit 运营经验？">关键词覆盖</button>
     <button data-q="拿我的简历对比这些 JD，我最该补什么？">简历诊断</button>
     <button data-q="根据这些 JD，面试最可能追问我什么？哪些我答不上来？">面试押题</button>
   </div>

@@ -11,7 +11,8 @@ import { retrieve, buildContext, stats, coverage } from "./lib/retrieve.js";
 import { aggregateGaps, renderGaps } from "./lib/gap.js";
 import { renderFunnelTab } from "./lib/funnelUI.js";
 import {
-  chatStream, chatOnce, getSettings, hasKey, explainError, fmtCost, getUsageTotal,
+  // getUsageTotal 去掉了：累计用量那条开场系统消息删了，见 boot() 里的说明
+  chatStream, chatOnce, getSettings, hasKey, explainError, fmtCost,
 } from "./lib/llm.js";
 import {
   INTENTS, ruleClassify, classifyPrompt, parseIntentId, extractKeywords, systemPrompt,
@@ -498,16 +499,14 @@ async function boot() {
       : "还没采集 JD。去岗位详情页按 Alt+S 存几条。"
   );
 
-  const tot = await getUsageTotal();
-  if (tot.calls) {
-    const hr = tot.inTok ? Math.round(((tot.hitTok || 0) / tot.inTok) * 100) : 0;
-    addSys(
-      "累计：" + tot.calls + " 次 · " +
-      ((tot.inTok || 0) + (tot.outTok || 0)).toLocaleString() + " tok · 缓存命中 " + hr + "% · ≈" +
-      fmtCost(tot.cost) + (tot.unpriced ? "（" + tot.unpriced + " 次未配价格）" : "") +
-      "（自 " + (tot.since || "—") + "）"
-    );
-  }
+  /* ⚠️ 这里原来还会再发一条系统消息，报累计调用次数 / token / 缓存命中率 / 花费。
+     删掉了，三个理由：
+     ① 它**每次打开都出现**，而它不会改变你接下来做什么——
+        开面板是为了问问题，不是为了看账；
+     ② 第一屏因此固定被两条居中灰字占掉，真正的对话从第三行开始；
+     ③ 这些数在两个地方已经有了：会话内花费在页头那个 #cost 胶囊里
+        （实时更新），累计的在设置页「本地数据」那一节。
+     一个信息出现三遍，就有两遍是噪声。 */
   paintSession();
 }
 
