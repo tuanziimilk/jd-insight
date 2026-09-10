@@ -8,6 +8,7 @@
  * 另外：统计类问题走确定性计算，不进模型（省钱、可复现、不会算错）。
  */
 import { retrieve, buildContext, stats, coverage } from "./lib/retrieve.js";
+import { aggregateGaps, renderGaps } from "./lib/gap.js";
 import { renderFunnelTab } from "./lib/funnelUI.js";
 import {
   chatStream, chatOnce, getSettings, hasKey, explainError, fmtCost, getUsageTotal,
@@ -268,6 +269,31 @@ function answerStats(question, kws) {
   return lines.join("\n");
 }
 
+/* 能力缺口：全部确定性计算，本轮**不调模型**。
+ *
+ * 为什么这条要写死成"不过模型"而不是靠提示词约束：
+ * 用户的边界是「只要学习路数，不要学习方案」——而模型被问到"我该补什么"
+ * 时，一定会顺手推荐课程、书和练手项目。那些内容它编得很像真的，
+ * 但用户明确说过不信任这个模型整理的资料。
+ * 既然缺口本身能靠词典 + 频次算准，就没有任何理由让模型参与。
+ */
+function answerGap() {
+  const res = aggregateGaps(JDS, PROFILE.resume, { scope: SCOPE || "全部" });
+  const body = renderGaps(res);
+  if (!res.ok) return "**能力缺口**
+
+" + body;
+  return (
+    "**能力缺口**（不经模型，按词典 + 频次直接算，结果可复现）
+
+" + body +
+    "
+
+_只给「该补哪些能力」这一层。具体学什么资料这里不给——" +
+    "这个模型整理的资料不可信，那部分在你自己的知识库里做。_"
+  );
+}
+
 /* ---------------------------------------------------------------- 主流程 */
 
 async function ask(question, opts = {}) {
@@ -307,12 +333,21 @@ async function ask(question, opts = {}) {
 
     // ② 确定性意图：不进模型
     if (intent.deterministic) {
-      const kws = (r && r.keywords) || extractKeywords(question);
       const b = addAssistant(intent, by);
       b.classList.remove("dots");
-      b.innerHTML = md(answerStats(question, kws));
+      let text;
+      let memo;
+      if (intent.id === "GAP") {
+        text = answerGap();
+        memo = "[已给出能力缺口表]";
+      } else {
+        const kws = (r && r.keywords) || extractKeywords(question);
+        text = answerStats(question, kws);
+        memo = "[已给出统计结果]";
+      }
+      b.innerHTML = md(text);
       HISTORY.push({ role: "user", content: question });
-      HISTORY.push({ role: "assistant", content: "[已给出统计结果]" });
+      HISTORY.push({ role: "assistant", content: memo });
       return;
     }
 
