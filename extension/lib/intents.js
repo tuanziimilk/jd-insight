@@ -60,10 +60,20 @@ export const INTENTS = {
 
 /* ---------------------------------------------------------------- 规则层 */
 
-const STATS_PAT = [
-  /(几条|多少条|多少个|几个|占比|比例|覆盖率|分布|中位|平均)/,
-  /(统计|汇总|一共|总共)/,
-];
+/* ⚠️ 这两类必须分开，混在一起会产生"答非所问但看起来很确定"的回答。
+ * 2026-09-10 实测撞到：问「这批 JD 里最高频的能力要求是什么？按覆盖率排」，
+ * 命中「覆盖率」→ 判成 STATS（deterministic，不进模型）→ 回了一张固定的
+ * 全库统计表（JD 总数 / 不同公司 / 城市分布）。那张表没有一个字回答了问题，
+ * 但它带着"不经模型，直接算，结果可复现"的口气，比明说"我不知道"更糟。
+ *
+ * 区别在于：
+ *   · COUNT 类（几条 / 占比 / 覆盖率…）是**量词**，它需要一个宾语。
+ *     抠不出关键词就等于不知道要数什么——这种情况不能硬答，要交给模型。
+ *   · SUMMARY 类（统计 / 汇总 / 一共）本身就是在要那张全库概览表，
+ *     没有宾语是正常的。
+ */
+const STATS_COUNT_PAT = [/(几条|多少条|多少个|几个|占比|比例|覆盖率|分布|中位|平均)/];
+const STATS_SUMMARY_PAT = [/(统计|汇总|一共|总共)/];
 const DIAGNOSE_PAT = [/(诊断|差距|缺什么|补什么|该补|欠缺|够不够|匹配度|我能投|适合我|对比.*简历|简历.*对比|对标)/];
 const REWRITE_PAT = [/(改写|润色|重写|帮我改|怎么写|措辞|优化.*(经历|描述|简历))/];
 const PREP_PAT = [/(面试|会问|准备什么|押题|反问)/];
@@ -96,13 +106,25 @@ export function ruleClassify(text) {
   const t = (text || "").trim();
   if (!t) return { intent: INTENTS.SMALLTALK, confidence: 1, by: "empty" };
 
-  const isStats = STATS_PAT.some((p) => p.test(t));
+  const isCount = STATS_COUNT_PAT.some((p) => p.test(t));
+  const isSummary = STATS_SUMMARY_PAT.some((p) => p.test(t));
   const kws = extractKeywords(t);
-  // "有几条要求 Discord" —— 既有统计词又有关键词，规则最可靠
-  if (isStats && kws.length) {
+
+  // "有几条要求 Discord" —— 量词 + 抠得出宾语，这时确定性计算最可靠
+  if (isCount && kws.length) {
     return { intent: INTENTS.STATS, confidence: 0.95, by: "rule:stats+kw", keywords: kws };
   }
-  if (isStats) return { intent: INTENTS.STATS, confidence: 0.7, by: "rule:stats" };
+  // "帮我统计一下 / 汇总一下" —— 要的就是全库概览表，没有宾语是正常的
+  if (isSummary && !kws.length) {
+    return { intent: INTENTS.STATS, confidence: 0.8, by: "rule:stats:summary" };
+  }
+  if (isSummary && kws.length) {
+    return { intent: INTENTS.STATS, confidence: 0.9, by: "rule:stats+kw", keywords: kws };
+  }
+  /* ⚠️ 刻意**不**在这里接住"只有量词、抠不出宾语"的情况。
+   * 那种问题（如"最高频的能力要求是什么"）要读 JD 正文才能答，
+   * 交给下面的模型分类 → ASK_JD → 检索 + 模型。
+   * 这里硬答一张固定统计表，就是上面注释里那个 bug。 */
   if (REWRITE_PAT.some((p) => p.test(t))) {
     return { intent: INTENTS.REWRITE, confidence: 0.85, by: "rule:rewrite" };
   }

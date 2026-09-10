@@ -158,8 +158,11 @@
     <legend>Pricing</legend>
     <p class="tip" style="margin-top:0">
       <b>只用于估算花费，不影响调用。</b>单位：元 / 百万 token。<br>
-      <b>刻意没有预填任何数字</b>——价格是外部易变事实，写进代码迟早过期，
-      而「看起来精确但其实是错的成本」比不显示更糟。请去官网抄当前价填进来。<br>
+      下面这几行是<b>预估默认值</b>（2026-09-10 抄自 DeepSeek 官方定价页）。
+      取的是<b>高峰价</b>、汇率按 1 USD = 7.2 CNY 折算——估算宁可偏高：
+      偏低会让你以为某个功能很便宜而放开用，月底才发现不是。<br>
+      <b>价格一定会过期</b>，要准确就自己去官网抄当前价覆盖它。你填过的值不会被
+      默认值盖掉。<br>
       DeepSeek 价格页：<code>platform.deepseek.com</code> → 定价
     </p>
     <table id="priceTable">

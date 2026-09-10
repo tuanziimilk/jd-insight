@@ -1,7 +1,6 @@
 import {
   getSettings, saveSettings, chatOnce, explainError,
-  getUsageTotal, resetUsage, fmtCost,
-} from "./lib/llm.js";
+  getUsageTotal, resetUsage, fmtCost, PRICING_ESTIMATE } from "./lib/llm.js";
 import {
   getSyncSettings, isSyncConfigured, isLoggedIn, login, logout, syncAll, explainSyncError,
   getTombstones,
@@ -73,6 +72,11 @@ function priceRow(model, p) {
 
 function paintPricing(pricing, currentModel) {
   const t = $("priceTable");
+  /* ⚠️ 只在**一条都没配过**的时候才铺预估价。用户手填过的值绝不覆盖——
+   * 他填的是从官网抄的真价，比我这份估算可信得多。 */
+  if (!pricing || !Object.keys(pricing).length) {
+    pricing = JSON.parse(JSON.stringify(PRICING_ESTIMATE));
+  }
   Array.from(t.querySelectorAll("tr")).slice(1).forEach((r) => r.remove());
   const entries = Object.entries(pricing || {});
   // 当前模型没有价格行就自动加一行，省得用户找不到入口
