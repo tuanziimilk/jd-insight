@@ -10,20 +10,52 @@
   .wrap { max-width:620px; margin:0 auto }
   h1 { margin:0 0 4px; font-size:19px }
   .sub { margin:0 0 22px; color:var(--muted); font-size:13px }
-  fieldset { border:1px solid var(--rule); border-radius:2px; background:var(--card-solid);
+  /* ⚠️ 圆角必须走 token。原来这一页写死 2px，而 popup 和情报台用的是
+     var(--r)=6px —— 三个界面的方框看起来不像一套东西，而这正是当初把
+     radius 做成 token 要解决的问题（theme.css 头部原话：
+     "radius 也做成 token，别再各写一遍"）。这一页是唯一没遵守的。 */
+  fieldset { border:1px solid var(--rule); border-radius:var(--r); background:var(--card-solid);
     padding:16px 18px; margin:0 0 16px }
-  legend { padding:0 6px; font:600 11.5px/1 var(--sans); color:var(--acc);
-    letter-spacing:.08em; text-transform:uppercase }
+  /* ⚠️ legend 原来是英文大写（MODEL / CLOUD SYNC / DATA / HOW TO USE），
+     而页面其余部分全是中文。区块标题是导航，用另一种语言写导航
+     等于让人多翻译一次。10.5px 只允许放拉丁大写（见 theme.css 字号下限），
+     换成中文之后字号也得跟着提到 12px。 */
+  legend { padding:0 6px; font:600 12px/1 var(--sans); color:var(--acc);
+    letter-spacing:.02em }
   label { display:block; margin:12px 0 4px; font-size:12.5px; font-weight:600; color:var(--ink) }
   label:first-of-type { margin-top:0 }
   /* 颜色/边框/聚焦态都在 theme.css，这里只管撑满宽度 */
   input, select { width:100% }
-  .tip { margin:4px 0 0; font-size:11.5px; color:var(--ink2) }
+  /* ⚠️ 12px 不是 11.5px。theme.css 里写着「需要连读的中文说明文字 ≥ 12px」，
+     后面还跟了一句"别写成一个代码里没遵守的数"——而这一页有 12 处 .tip、
+     全是连读的中文说明，全都卡在 11.5px。规则写下来了就得遵守，
+     不然那条注释比没有更糟。 */
+  .tip { margin:5px 0 0; font-size:12px; line-height:1.65; color:var(--ink2) }
+  /* ⚠️ .mini 之前只由表格 CSS 里的 `th .mini` 定义，而我删表格样式时
+     把它一起删了——页面里 5 处在用（3 个折叠标题 + Key 的厂商后缀 +
+     思考开关的附注），于是全部按继承的 14px 正文渲染，层级整个塌掉。
+     这是"清理死 CSS"顺手造成的回归，所以现在单独定义它。
+     11.5px 合规：它管的是短标签，不是要连读的段落。 */
+  .mini { font-size:11.5px; font-weight:400; color:var(--muted) }
+  summary.mini { padding:3px 0 }
+  summary.mini:hover { color:var(--ink2) }
+  details[open] > summary.mini { margin-bottom:8px }
   .row { display:flex; gap:10px }
   .row > div { flex:1 }
-  .warn { background:var(--warn-soft); border-left:3px solid var(--warn);
-    padding:11px 13px; border-radius:2px; font-size:12.5px; margin:0 0 16px; color:var(--ink) }
-  .warn b { color:var(--warn) }
+  /* ⚠️ 隐私声明原来是一整块琥珀底，占了首屏最显眼的位置。
+     它是**读一次**的事实，不是需要反复警示的状态——而琥珀底在这个项目里
+     是语义色（待补/未做），用在一段静态说明上属于滥用。
+     改成只留左侧一条强调线，底色去掉：信息还在，但不再抢首屏。 */
+  .warn { border-left:3px solid var(--rule-strong); background:none;
+    padding:2px 0 2px 13px; font-size:12px; line-height:1.65;
+    margin:0 0 20px; color:var(--ink2) }
+  .warn b { color:var(--ink) }
+  /* 顶部通知条：留给"你的配置有问题、需要动手"这类必须被看到的消息。
+     和 .warn 相反——它是状态，所以用语义色。 */
+  #notice { display:none; border-radius:var(--r); padding:10px 13px;
+    font-size:12.5px; line-height:1.6; margin:0 0 16px;
+    background:var(--stop-soft); color:var(--stop); border:1px solid var(--stop) }
+  #notice.on { display:block }
   /* 按钮外观在 theme.css。这页只调内距。 */
   button { padding:9px 16px }
   button.ghost { color:var(--ink2); border-color:var(--rule-strong) }
@@ -51,7 +83,9 @@
 <body>
 <div class="wrap">
   <h1>JD Insight 设置</h1>
-  <p class="sub">配置模型。只有对话功能需要，采集和统计不需要。</p>
+  <p class="sub">模型只有对话功能需要 —— 采集 JD、看统计、算能力缺口都不用配。</p>
+
+  <div id="notice"></div>
 
   <div class="warn">
     <b>关于你的 Key</b>：它只存在这台电脑的浏览器本地存储里，只会发给你自己填的 base_url。
@@ -61,7 +95,7 @@
 
 
   <fieldset>
-    <legend>Model</legend>
+    <legend>模型</legend>
     <label for="provider">厂商</label>
     <select id="provider"></select>
     <p class="tip">
@@ -121,10 +155,21 @@
       </div>
       <p class="tip">求职分析要结论稳定，temperature 别调高。</p>
     </details>
+
+    <!-- ⚠️ 保存/测试原来在**整页最底部**。但它只管这一块：
+         云端同步有自己的「登录」「同步全部」，本地数据有自己的三个清除按钮。
+         放在页尾会让人以为"要先滚到底才能保存同步设置"，
+         而且改完模型得越过同步、数据、使用说明三个区块才找到保存。
+         按钮该紧跟它作用的那组字段。 -->
+    <div class="bar" style="margin-top:16px; padding-top:14px; border-top:1px solid var(--rule)">
+      <button class="primary" id="save">保存</button>
+      <button class="ghost" id="test">测试连接</button>
+      <span id="status"></span>
+    </div>
   </fieldset>
 
   <fieldset id="sync">
-    <legend>Cloud Sync</legend>
+    <legend>云端同步</legend>
     <p class="tip" style="margin-top:0">
       同步到 <code>career-web</code> 工作台用的同一套 Supabase 项目。
       不装 SDK，手写基于 fetch 的客户端——和上面调模型是同一套零构建原则。
@@ -175,7 +220,7 @@
   </fieldset>
 
   <fieldset>
-    <legend>Data</legend>
+    <legend>本地数据</legend>
     <!-- ⚠️ 原来这里是两张表：一张三列的「本地存了什么」，一张七列的用量表。
          隐私说明该有，但它是一段读一次的事实，不需要表格的结构；
          用量的七列里有五列（输入 / 缓存命中率 / 输出 / 其中思考）
@@ -205,7 +250,7 @@
        不是为了读教程。所以移到页尾并默认收起；
        从 popup 的「使用说明」跳进来时 focusFromHash() 会自动展开。 -->
   <fieldset id="help">
-    <legend>How to use</legend>
+    <legend>使用说明</legend>
     <details id="helpBody">
     <summary class="mini" style="cursor:pointer">怎么存 JD、怎么看状态、怎么跑离线分析脚本</summary>
 
@@ -244,11 +289,6 @@
     </details>
   </fieldset>
 
-  <div class="bar">
-    <button class="primary" id="save">保存</button>
-    <button class="ghost" id="test">测试连接</button>
-    <span id="status"></span>
-  </div>
 </div>
 <!-- 守卫排在前面且是普通脚本，理由同 popup.html：module 的加载错误
      也能被它捕获，界面上会看到原因而不是一个"填不进东西"的表单 -->

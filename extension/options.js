@@ -22,6 +22,16 @@ function setSyncStatus(text, kind) {
   $("syncStatus").textContent = text;
 }
 
+/* 顶部通知条。留给"你的配置有问题、需要动手"这类必须被看到的消息。
+   ⚠️ 和 setStatus 的区别是**位置**，不是措辞：#status 在「模型」区块底部，
+   紧跟保存按钮，用来回执刚才那个动作；而"你存的模型名已经退役了"
+   是一条载入时就该被看到的消息，写在按钮旁边等于藏起来。 */
+function setNotice(text) {
+  const el = $("notice");
+  el.textContent = text || "";
+  el.className = text ? "on" : "";
+}
+
 /* ⚠️ 原来这里手抄了一份 PRESETS（六个厂商的 baseUrl + 一个模型名），
    而模型下拉在 options.html 里又写了一份 <option>，价格表在 llm.js 里
    写了第三份。三份数据必然分叉——实测就分叉了：PRESETS 里写的
@@ -237,7 +247,8 @@ async function load() {
   await paintUsage();
 
   if (migrated) {
-    setStatus("模型名 " + s.model + " 已退役，自动换成 " + model + "，点保存生效", "bad");
+    setNotice("你存的模型名 " + s.model + " 已经被厂商下线了，" +
+      "调用它会直接失败。已自动换成现役的 " + model + " —— 点下面的「保存」生效。");
   }
 }
 
@@ -280,6 +291,8 @@ $("save").onclick = async () => {
     pricing: PRICING,
   });
   const n = Object.values(KEYS).filter((v) => v && v.trim()).length;
+  // 通知条说的就是"点保存生效"，点完还留着是自相矛盾
+  setNotice("");
   setStatus("已保存" + (n > 1 ? "（已配 " + n + " 家，切厂商不用重填 key）" : ""), "ok");
   setTimeout(() => ($("status").textContent = ""), 2200);
 };
