@@ -89,6 +89,56 @@ check("分母不含被跳过的", mixed.analyzed === JDS.length);
 const ragMixed = mixed.rows.find((r) => r.id === "rag");
 check("加一条空记录不改变任何频次", !!ragMixed && !!rag && ragMixed.jdCount === rag.jdCount);
 
+/* ── 3.5 领域外的 JD 必须被排除并明说，不能硬算 ──
+   这是「这个工具专门为 AI 产品经理 / AI Agent 方向做的」这句话的代码化。
+   一条非 AI 岗位的 JD 会命中「PRD」「跨部门推动」这种谁都写的项，
+   然后给你一张说你缺 RAG 的表——看起来正常但毫无意义，比报错更糟。 */
+const OFF = {
+  title: "财务经理",
+  company: "某制造企业",
+  body:
+    "【岗位职责】1. 负责集团月度、季度、年度财务报表的编制与合并，确保准确及时。\n" +
+    "2. 组织年度预算编制，跟踪预算执行情况，输出差异分析报告并推动改善。\n" +
+    "3. 负责成本核算体系的搭建与优化，配合业务部门做成本管控。\n" +
+    "4. 对接外部审计与税务机关，处理税务申报与筹划事宜。\n" +
+    "5. 跨部门推动财务流程的规范化，输出制度文档并组织评审。\n" +
+    "【任职要求】1. 本科及以上学历，会计、财务管理相关专业，8 年以上财务经验。\n" +
+    "2. 熟悉企业会计准则与税法，有制造业成本核算经验者优先。\n" +
+    "3. 具备较强的沟通协调能力，能独立推动跨部门项目落地。",
+};
+const offHits = matchSkills(OFF.body);
+check("非 AI 岗位的 JD 确实会命中通用项（所以光看数量判不出方向）",
+  offHits.size >= 2, [...offHits.keys()].join(","));
+check("但它一个 AI 核心项都不命中",
+  !["rag", "agent", "workflow", "prompt", "dialog", "eval", "guardrail", "llm-basic", "multimodal"]
+    .some((id) => offHits.has(id)),
+  [...offHits.keys()].join(","));
+
+const withOff = aggregateGaps([...JDS, OFF], RESUME);
+check("领域外的被排除", withOff.offDomain === 1, `offDomain=${withOff.offDomain}`);
+check("分母不含领域外的", withOff.analyzed === JDS.length);
+const ragOff = withOff.rows.find((r) => r.id === "rag");
+check("加一条领域外记录不改变任何频次",
+  !!ragOff && !!rag && ragOff.jdCount === rag.jdCount);
+check("口径行里说明了排除", /不在「/.test(renderGaps(withOff)));
+
+/* 整库都是领域外 → 必须说"工具不适用"，不能说"你数据不够" */
+const allOff = aggregateGaps([OFF, OFF, OFF, OFF, OFF, OFF], RESUME);
+check("整库领域外时 ok=false", allOff.ok === false);
+check("拒答理由要说清是工具不适用，而不是让人继续多存",
+  allOff.ok === false && /帮不上|没有意义/.test(allOff.reason), allOff.reason.slice(0, 40));
+
+/* ── 3.6 中英空格归一化（实测出来的漏判）── */
+check("「B 端」带空格也能命中（原来整条漏判）",
+  matchSkills("要求扎实的 B 端产品基本功与流程设计能力。").has("backend-system"));
+check("「To B 企业服务」能命中",
+  matchSkills("加分项：有 To B 企业服务产品经验者优先。").has("backend-system"));
+check("「抽象为可复用的产品能力」能命中",
+  matchSkills("把现场作业流程抽象为可复用的产品能力。").has("scoping"));
+/* 纯拉丁词之间的空格不能被压掉，否则是把一个漏判换成另一个 */
+check("function call 这类词组不被压碎",
+  matchSkills("熟悉 function call 与工具调用。").has("agent"));
+
 /* ── 4. 没有简历 → 降级成"高频要求排行"，绝不把所有项都当缺口 ── */
 const noResume = aggregateGaps(JDS, "");
 check("无简历时 resumeKnown=false", noResume.resumeKnown === false);

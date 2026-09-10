@@ -55,15 +55,64 @@ function evidenceScore(sentence, indexRatio) {
   return n;
 }
 
+/* 中英之间的空格归一化。
+ *
+ * ⚠️ 这是一个实测出来的漏判，不是洁癖。
+ * 词典里有 pattern `B端`，而真实 JD 写的是「**B 端**产品经验」——中间一个空格。
+ * 中文 pattern 走的是 `includes()`，一个空格就整条漏掉。
+ * 中文技术写作里这个空格很常见：「B 端」「C 端」「AI 产品」「3 年」，
+ * 很多团队的文档规范甚至**要求**中英文之间加空格。
+ *
+ * 规则：**空格两侧只要有一侧是汉字或中文标点就删掉它**，
+ * 纯拉丁词之间的空格保留——否则 `function call` 会被压成 `functioncall`、
+ * `prompt engineering` 也会碎掉，那是把一个漏判换成另一个。
+ *
+ * 用 \p{Script=Han} 而不是手写码位区间：我第一版写 㐀-鿿，
+ * 区间起点就是错的（常用汉字从 U+4E00 起），而且这类魔法数字没人能复核。
+ */
+const CJK_CLASS = "[\\p{Script=Han}\\u3000-\\u303F\\uFF00-\\uFFEF]";
+const CJK_SPACE = new RegExp(
+  "(?<=" + CJK_CLASS + ")\\s+|\\s+(?=" + CJK_CLASS + ")", "gu"
+);
+function squash(text) {
+  return String(text == null ? "" : text).replace(CJK_SPACE, "");
+}
+
 /** 关键词在句子里出现。英文按词边界（SQL 不该被 MySQLite 命中），中文直接包含。 */
 function hits(sentence, pattern) {
   const isAscii = /^[\x20-\x7e]+$/.test(pattern);
-  if (!isAscii) return sentence.includes(pattern);
+  // 句子和 pattern 都走同一次归一化，否则带空格的 pattern 反而匹配不上
+  if (!isAscii) return squash(sentence).includes(squash(pattern));
   const esc = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp("(^|[^A-Za-z0-9])" + esc + "($|[^A-Za-z0-9])", "i").test(sentence);
 }
 
 /* ═══ 单文本 → 命中的技能集合 ═══ */
+
+/* ═══ 领域判定 ═══
+ *
+ * ⚠️ 这一段是把「这个工具专门为 AI 产品经理 / AI Agent 方向做的」
+ * 从一句标语变成一条代码约束。
+ *
+ * 词典的 26 项是按一份 AI 产品经理简历校准的：AI/Agent 那一侧实测零漏判，
+ * 而通用产品、技术岗、非产品岗几乎没有对应项。于是一条**不在这个方向上**的 JD
+ * （财务经理、前端工程师…）跑出来的缺口表是「看起来完全正常但毫无意义」的
+ * ——它会命中「跨部门推动」「PRD」这种谁都写的项，然后告我你缺 RAG。
+ * **这比报错更糟**，因为报错你会去查，而一张像样的表你会去信。
+ *
+ * 判定方式刻意用「核心项一个都没命中」而不是「命中总数少于 N」：
+ * 一条真正的 AI 产品 JD 哪怕写得短，也一定会提到 RAG / Agent / 提示词 /
+ * 多轮 / 评测 / 大模型里的至少一个；而一条非 AI 岗位的 JD 可能命中五六项
+ * 通用能力却一个 AI 核心项都没有——数量判不出方向，成分才行。
+ */
+const CORE = new Set((SKILLS.domain && SKILLS.domain.coreSkills) || []);
+export const DOMAIN_LABEL = (SKILLS.domain && SKILLS.domain.label) || "本方向";
+
+/** 这段文本在不在本工具的方向上（命中过任一核心项） */
+function inDomain(hitMap) {
+  for (const id of hitMap.keys()) if (CORE.has(id)) return true;
+  return false;
+}
 
 /** 取正文。抓不到就返回 null，让调用方把这条算进 skipped。 */
 function usableText(rec) {
@@ -114,25 +163,43 @@ export function matchSkills(text) {
  */
 export function aggregateGaps(jds, resumeText, opts = {}) {
   const all = Array.isArray(jds) ? jds : [];
-  const skipped = [];
+  const skipped = [];   // 没抓到正文
+  const offDomain = []; // 有正文，但不在本工具的方向上
   const usable = [];
+
+  /* ⚠️ 这里对每条 JD 只做**一次** matchSkills。
+     领域判定和频次统计都用同一份命中结果——分两次调不只是慢，
+     而是给了两处结论不一致的机会（判定说在域内、统计却算不出东西）。 */
   for (const r of all) {
     const t = usableText(r);
-    if (t) usable.push({ rec: r, text: t });
-    else skipped.push(r);
+    if (!t) { skipped.push(r); continue; }
+    const m = matchSkills(t);
+    if (!inDomain(m)) { offDomain.push(r); continue; }
+    usable.push({ rec: r, text: t, hits: m });
   }
 
   if (usable.length < MIN_JDS) {
+    const bits = ["能分析的 JD 只有 " + usable.length + " 条（至少要 " + MIN_JDS + " 条）。"];
+    if (skipped.length) {
+      bits.push("另有 " + skipped.length + " 条只抓到标题没抓到正文——" +
+        "那些是在列表页存的，去详情页重新按 Alt+S 存一次就有正文了。");
+    }
+    /* 领域外的必须单独说，而且要说清是"工具不适用"不是"你数据不够"——
+       否则用户会一直去多存 JD，而存得再多也不会有结果。 */
+    if (offDomain.length) {
+      bits.push("还有 " + offDomain.length + " 条不在「" + DOMAIN_LABEL + "」上" +
+        "（正文里一条 AI/Agent 相关的要求都没有），这套词典对它们没有意义，已排除。" +
+        (usable.length === 0
+          ? "如果你采的本来就不是 AI 产品岗，那这个工具帮不上——它的词典是按这个方向校准的。"
+          : ""));
+    }
+    if (!skipped.length && !offDomain.length) bits.push("先多存几个岗位。");
     return {
       ok: false,
-      reason:
-        "能分析的 JD 只有 " + usable.length + " 条（至少要 " + MIN_JDS + " 条）。" +
-        (skipped.length
-          ? "另有 " + skipped.length + " 条只抓到标题没抓到正文——" +
-            "那些是在列表页存的，去详情页重新按 Alt+S 存一次就有正文了。"
-          : "先多存几个岗位。"),
+      reason: bits.join(""),
       analyzed: usable.length,
       skipped: skipped.length,
+      offDomain: offDomain.length,
     };
   }
 
@@ -155,8 +222,8 @@ export function aggregateGaps(jds, resumeText, opts = {}) {
     });
   }
 
-  for (const { rec, text } of usable) {
-    const m = matchSkills(text);
+  for (const { rec, hits: m } of usable) {
+    // 复用上面那次 matchSkills 的结果，不重算——见循环上方的说明
     for (const [id, hit] of m) {
       const row = byId.get(id);
       if (!row) continue;
@@ -195,6 +262,8 @@ export function aggregateGaps(jds, resumeText, opts = {}) {
     ok: true,
     analyzed: usable.length,
     skipped: skipped.length,
+    offDomain: offDomain.length,
+    domain: DOMAIN_LABEL,
     total: all.length,
     scope: opts.scope || "全部",
     resumeKnown,
@@ -209,9 +278,16 @@ export function aggregateGaps(jds, resumeText, opts = {}) {
 export function renderGaps(res, topN = 8) {
   if (!res.ok) return res.reason;
   const L = [];
+  /* 口径行必须把「排除了什么」说全。少报一类排除，分母就解释不通——
+     用户会自己去数弹窗里有几条，然后发现和这里对不上。 */
   L.push(
     "口径：" + res.scope + " 共 " + res.total + " 条，其中 " + res.analyzed +
-      " 条有正文参与统计" + (res.skipped ? "，跳过 " + res.skipped + " 条（没抓到正文）" : "") + "。"
+      " 条参与统计" +
+      (res.skipped ? "，跳过 " + res.skipped + " 条（没抓到正文）" : "") +
+      (res.offDomain
+        ? "，排除 " + res.offDomain + " 条不在「" + res.domain + "」上的"
+        : "") +
+      "。"
   );
   if (!res.resumeKnown) {
     L.push(

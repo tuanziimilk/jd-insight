@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "JD Insight · 求职情报台",
+  "name": "JD Insight · AI 产品经理求职情报台",
   "version": "2.1.1",
-  "description": "在你自己浏览的岗位详情页一键存下 JD，然后用对话问它：高频要求是什么、我缺什么、面试会问什么。只读当前页面，不自动翻页。",
+  "description": "专为 AI 产品经理 / AI Agent 方向做的求职工具。在岗位详情页一键存 JD，然后用对话问它：这批岗位高频要 RAG / Agent / 评测 里的哪几项、我的简历缺什么。只读当前页面，不自动翻页。",
   "permissions": [
     "storage",
     "downloads",

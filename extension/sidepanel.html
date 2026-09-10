@@ -18,6 +18,14 @@
     padding: 9px 12px; border-bottom: 1px solid var(--rule); background: var(--card);
   }
   header h1 { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: .01em; }
+  /* 方向标。放在标题旁边而不是做成副标题：它是这个工具的**适用范围**，
+     不是一句宣传语——词典只对 AI 产品 / Agent 方向成立，
+     采到别的方向的 JD 会被明确排除（见 lib/gap.js 的领域判定）。
+     所以它该像"规格"一样常驻，而不是只在首屏出现一次。 */
+  header .dir {
+    font: 11.5px/1 var(--sans); color: var(--muted);
+    padding-left: 8px; border-left: 1px solid var(--rule);
+  }
   header .n {
     font-family: var(--sans); font-size: 12px; color: var(--muted);
     padding: 2px 7px; border: 1px solid var(--rule); border-radius: 100px;
@@ -223,6 +231,7 @@
 <body>
   <header>
     <h1>JD Insight</h1>
+    <span class="dir">AI 产品 / Agent</span>
     <span class="n" id="count">0 条 JD</span>
     <span class="n" id="cost" title=""></span>
     <span class="sp"></span>
