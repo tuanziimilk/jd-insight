@@ -117,9 +117,13 @@
      这正是 C 案的做法：等宽字本身就是"这是数据"的标记。
      悬停才浮出边框，提示它可以点开改。 */
   .chip.sal {
-    font: 600 12px/1 var(--mono);
+    /* 上一版去掉填色之后又太不显眼了。改成用**字色**做强调：
+       13px / 700 / 等宽 + 深绿。绿在这里不是"好"的意思，是"这条有金额了"
+       —— 它是列表里唯一的绿，所以扫一眼就能数出哪几条还缺。
+       刻意不加填色和边框：填色那一版正是"太黑太吸睛"的来源。 */
+    font: 700 13px/1 var(--mono);
     font-variant-numeric: tabular-nums;
-    color: var(--ink);
+    color: var(--ok);
     background: transparent;
     border-color: transparent;
     padding-left: 2px;
@@ -154,39 +158,19 @@
   .salinput:focus { outline: none; box-shadow: 0 0 0 3px var(--acc-soft); }
   .empty { padding: 22px 12px; text-align: center; color: var(--muted); font-size: 12px; }
 
-  .tip {
-    margin: 11px 0 0;
-    padding-top: 10px;
+
+  /* 底栏：左边是说明入口（导航），右边是清空（不可逆操作）。
+     两端对齐、隔一整行宽度——不可逆的东西不该和别的动作挨着。 */
+  .foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 12px;
+    padding-top: 12px;
     border-top: 1px solid var(--rule);
-    font: 12px/1.7 var(--sans);
-    color: var(--muted);
   }
-  .tip code { font: 12px var(--mono); border: 0; padding: 0 2px; }
-
-  /* 折叠的参考信息。summary 要长得像可点的东西（不然没人会去点），
-     但不能长得像按钮——它是导航不是操作，所以用下划线而不是边框。 */
-  .ref { margin-top: 4px; }
-  .ref summary {
-    font: 12px/1.6 var(--sans);
-    color: var(--muted);
-    cursor: pointer;
-    text-decoration: underline;
-    text-underline-offset: 2px;
-    list-style: none;
-  }
-  .ref summary::-webkit-details-marker { display: none; }
-  .ref summary::before { content: "▸ "; text-decoration: none; }
-  .ref[open] summary::before { content: "▾ "; }
-  .ref summary:hover { color: var(--ink2); }
-  .ref p {
-    margin: 8px 0 0;
-    font: 12px/1.7 var(--sans);
-    color: var(--muted);
-  }
-  .ref code { font: 12px var(--mono); border: 0; padding: 0 2px; }
-
-  /* 清空：整行最右、纯文字、只有它带红。刻意离所有按钮很远。 */
-  .destruct { display: flex; justify-content: flex-end; margin-top: 12px; }
+  .foot a { font: 12px/1.6 var(--sans); color: var(--muted); }
+  .foot a:hover { color: var(--ink2); }
   #clear {
     padding: 4px 2px;
     font-size: 11.5px;
@@ -201,7 +185,6 @@
 </head>
 <body>
   <h1>JD 采集器</h1>
-  <p class="sub">鼠标在岗位卡上停一下，点「存 JD」，或按 <code>Alt+S</code>。<br>按钮可以拖到任意位置，会记住。</p>
 
   <div class="count"><b id="n">0</b><span>条已存</span></div>
 
@@ -224,22 +207,10 @@
 
   <div class="list" id="list"><div class="empty">还没有存任何 JD</div></div>
 
-  <p class="tip">
-    点条目下的小标签可切换<b>意向</b>与<b>投递状态</b>，情报台里能按它筛选。
-  </p>
-
-  <!-- 这段路径说明是"看一次就记住"的参考，原来常驻底部、占掉约四分之一
-       弹窗高度。收进 details：需要的时候展开，不需要的时候不占地方。 -->
-  <details class="ref">
-    <summary>导出后怎么跑分析脚本</summary>
-    <p>
-      把 <code>jd_raw.txt</code> 放到<br>
-      <code>career-knowledgebase/05-资源库/JD原始数据/</code><br>
-      然后运行 <code>99-脚本/analyze_jd.py</code> 出汇总报告。
-    </p>
-  </details>
-
-  <div class="destruct">
+  <!-- 说明全部搬到设置页。popup 每天开几十次，不该常驻两段只在头几次
+       有用的文字（怎么存、导出后怎么跑脚本）。这里只留一个入口。 -->
+  <div class="foot">
+    <a href="#" id="help">使用说明</a>
     <button id="clear">清空全部记录</button>
   </div>
 

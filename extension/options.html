@@ -29,6 +29,20 @@
   button.ghost { color:var(--ink2); border-color:var(--rule-strong) }
   .bar { display:flex; gap:9px; align-items:center }
   #status { font:12px/1.4 var(--mono); color:var(--ink2) }
+  /* 去掉 ✓ / ✗ 前缀之后，成功和失败只剩文案能区分——
+     所以必须给状态上颜色，否则是退步不是改进。 */
+  #status.ok { color:var(--ok) }
+  #status.bad { color:var(--stop) }
+  #syncStatus.ok { color:var(--ok) }
+  #syncStatus.bad { color:var(--stop) }
+  #syncProgress.bad { color:var(--stop) }
+
+  h3 { margin:16px 0 6px; font:600 13px/1.4 var(--sans); color:var(--ink) }
+  h3:first-of-type { margin-top:4px }
+  ol.steps { margin:0; padding-left:1.4em; display:flex; flex-direction:column; gap:6px }
+  ol.steps li { font:12.5px/1.7 var(--sans); color:var(--ink2) }
+  p.note { margin:8px 0 0; font:12.5px/1.7 var(--sans); color:var(--muted) }
+  p.note b, ol.steps b { color:var(--ink2); font-weight:600 }
   code { font-size:.88em }
   table { border-collapse:collapse; width:100%; font-size:12.5px; margin-top:8px }
   th,td { border:1px solid var(--rule); padding:5px 8px; text-align:left }
@@ -48,6 +62,46 @@
     本项目<b>没有任何服务器</b>，我看不到你的 key，也看不到你的 JD 数据。<br>
     代价是：<b>能物理接触这台电脑的人可以读到它</b>。共用电脑请用低额度的专用 key。
   </div>
+
+  <!-- 这一节的内容是从 popup 搬过来的。popup 每天开几十次，
+       不该常驻两段只在头几次有用的文字；但也不能删掉，
+       所以放在设置页最前面，popup 底部留一个「使用说明」入口跳到这儿。 -->
+  <fieldset id="help">
+    <legend>How to use</legend>
+
+    <h3>怎么存一条 JD</h3>
+    <ol class="steps">
+      <li>在 BOSS 直聘的岗位列表里，<b>鼠标在某张岗位卡上停一下</b>（约半秒）。
+        停留是采集器判断"你在看哪一条"的唯一依据——列表上有十几张卡，
+        猜错就是存下一条你没看过的岗位。</li>
+      <li>点页面上的<b>「存 JD」</b>悬浮按钮，或按 <code>Alt+S</code>。
+        面板不是你停留那条的话，它会先自动切过去再存。</li>
+      <li>那个悬浮按钮<b>可以拖到任意位置</b>，拖一次就记住，
+        以后每个页面都在那儿。</li>
+    </ol>
+    <p class="note">
+      薪资在列表页上是私有区字体（页面文本里读不到数字），采集器会现场
+      比对字形还原。还原不了就显示<b>「＋薪资」</b>，点一下原地手填。
+    </p>
+
+    <h3>条目下面那排小标签</h3>
+    <p class="note">
+      <b>意向</b>（未定 / 想投 / 观察 / 不考虑）和<b>投递状态</b>
+      （想投 → 已投 → 进面 → 复面 → offer → 已挂 / 已拒）都是点一下循环切换，
+      情报台里能按它们筛选。深绿色那个是<b>薪资</b>，点开可以改。
+    </p>
+
+    <h3>导出后怎么跑分析脚本</h3>
+    <ol class="steps">
+      <li>在弹窗里点<b>「jd_raw.txt」</b>导出。</li>
+      <li>把文件放到 <code>career-knowledgebase/05-资源库/JD原始数据/</code>。</li>
+      <li>运行 <code>99-脚本/analyze_jd.py</code>，出高频要求的汇总报告。</li>
+    </ol>
+    <p class="note">
+      如果你已经配好下面的<b>云端同步</b>，这条链路可以不用——
+      同步之后直接在 career-os 工作台里看，那边有匹配分析。
+    </p>
+  </fieldset>
 
   <fieldset>
     <legend>Model</legend>
@@ -83,7 +137,7 @@
     <p class="tip">
       直接合并进请求体，用来传厂商特有参数——最常用的是<b>关掉思考模式</b>。
       <b>参数名各厂不同且会变，请照官网文档填</b>（我不猜）。<br>
-      ⚠️ DeepSeek V4 <b>默认开启思考模式</b>，思考产生的 token 计入输出计费但你看不到内容。
+      DeepSeek V4 <b>默认开启思考模式</b>，思考产生的 token 计入输出计费但你看不到内容。
       本工具多数任务（统计、检索问答）不需要思考，关掉能明显省钱。
     </p>
 
@@ -126,7 +180,7 @@
     </p>
   </fieldset>
 
-  <fieldset>
+  <fieldset id="sync">
     <legend>Cloud Sync</legend>
     <p class="tip" style="margin-top:0">
       同步到 <code>career-web</code> 工作台用的同一套 Supabase 项目。
@@ -157,7 +211,7 @@
       </div>
     </div>
     <p class="tip">
-      ⚠️ 用邮箱+密码登录，不用魔法链接——魔法链接的回调要处理跳转到扩展页面，
+      用邮箱+密码登录，不用魔法链接——魔法链接的回调要处理跳转到扩展页面，
       在 MV3 里要绕一圈，对个人工具不值得。<b>需要先在 career-web 里登录一次，
       然后用「设置同步密码」功能给这个账号加一个密码</b>（同一账号，RLS 按身份判断，
       跟你用哪种方式登录无关）。

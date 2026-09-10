@@ -27,6 +27,9 @@ let CACHE = [];
 
 /* 打标：两个维度，点击循环切换。
  * 刻意不在采集时问——采集要一次点击不打断浏览，标签是回头整理时才需要的东西。 */
+/* ⚠️ 这三个 emoji 是**存进云端的枚举值**（types.ts 的 Intent，工作台也读它），
+ * 不能因为界面不想显示 emoji 就改掉——那会让已有记录和云端对不上。
+ * 所以数据照旧，只在渲染时换成文字标签。 */
 const INTENT_CYCLE = ["", "🔥", "👀", "❌"];
 const INTENT_LABEL = { "": "未定", "🔥": "想投", "👀": "观察", "❌": "不考虑" };
 
@@ -202,7 +205,7 @@ function render() {
       if ((r.body || "").length < 120) {
         const w = document.createElement("div");
         w.className = "m warn";
-        w.textContent = "⚠ 正文没抓准，已存整页文本兜底";
+        w.textContent = "正文没抓准，已存整页文本兜底";
         d.appendChild(w);
       }
 
@@ -211,7 +214,7 @@ function render() {
       tags.className = "tags";
       const bi = document.createElement("button");
       bi.className = "chip" + (r.intent ? " on" : "");
-      bi.textContent = r.intent ? r.intent + " " + INTENT_LABEL[r.intent] : "＋意向";
+      bi.textContent = r.intent ? INTENT_LABEL[r.intent] : "＋意向";
       bi.title = "点击切换：未定 → 想投 → 观察 → 不考虑";
       bi.onclick = () => setField(r.key, "intent", nextIn(INTENT_CYCLE, r.intent));
       const bs = document.createElement("button");
@@ -226,7 +229,7 @@ function render() {
       if (r.failReason) {
         const bf = document.createElement("button");
         bf.className = "chip note"; // 挂因是标注，不是开关，同理不用 .on
-        bf.textContent = "↯ " + r.failReason;
+        bf.textContent = r.failReason;
         bf.title = "挂掉原因，点击修改";
         bf.onclick = () => askFailReason(r.key);
         tags.appendChild(bf);
@@ -308,7 +311,7 @@ $("json").addEventListener("click", () => {
 $("copy").addEventListener("click", async () => {
   try {
     await navigator.clipboard.writeText(toTxt(CACHE));
-    $("copy").textContent = "已复制 ✓";
+    $("copy").textContent = "已复制";
     setTimeout(() => ($("copy").textContent = "复制全部"), 1600);
   } catch (e) {
     $("copy").textContent = "复制失败";
@@ -369,22 +372,28 @@ async function paintSync() {
   el.className = "syncline";
   const s = await getSyncSettings();
 
+  /* ⚠️ 未就绪时**不禁用**按钮。禁用按钮的问题是它不告诉你怎么办——
+   * 你只能去读旁边那行小字再找链接。现在按钮照常可点，点了直接把
+   * 设置页打开并聚焦到密码框，一步到位。needSetup 标记给 click 用。 */
   if (!isSyncConfigured(s)) {
-    btn.disabled = true;
+    btn.disabled = false;
+    btn.dataset.needSetup = "config";
     el.classList.add("need");
-    el.textContent = "未配置云端 · ";
-    el.append(mkOptionsLink("去设置"));
+    el.textContent = "还没配置云端，点上面的按钮去设置";
     return;
   }
   if (!isLoggedIn(s)) {
-    btn.disabled = true;
+    btn.disabled = false;
+    btn.dataset.needSetup = "login";
     el.classList.add("need");
     // refreshToken 还在但过期了，和"从没登录过"是两件事，
     // 前者只需要重输一次密码，后者还要填 URL/key。说清楚省一轮试错。
-    el.textContent = (s.refreshToken ? "登录已过期" : "未登录") + " · ";
-    el.append(mkOptionsLink(s.refreshToken ? "重新登录" : "去登录"));
+    el.textContent = s.refreshToken
+      ? "登录已过期，点上面的按钮重新登录"
+      : "还没登录，点上面的按钮去登录";
     return;
   }
+  btn.dataset.needSetup = "";
 
   const { fresh, deletes, neverSynced } = await countPending(CACHE);
   btn.disabled = !CACHE.length && !deletes;
@@ -400,21 +409,23 @@ async function paintSync() {
   if (fresh || deletes || neverSynced) el.classList.add("need");
 }
 
-/** 打开设置页的链接。用 <a> 而不是 button：它是导航不是操作。 */
-function mkOptionsLink(text) {
-  const a = document.createElement("a");
-  a.href = "#";
-  a.textContent = text;
-  a.addEventListener("click", (e) => {
-    e.preventDefault();
-    chrome.runtime.openOptionsPage();
-  });
-  return a;
+/** 打开设置页的某一节。openOptionsPage 带不了 #hash，所以用 tabs.create。 */
+function openOptions(hash) {
+  chrome.tabs.create({ url: chrome.runtime.getURL("options.html" + (hash || "")) });
+  window.close();
 }
 
 $("sync").addEventListener("click", async () => {
   const btn = $("sync");
   const el = $("syncline");
+  // 没配置 / 没登录：直接把设置页打开并落到同步那一节。
+  // 用 tabs.create 而不是 openOptionsPage —— 后者带不了 #hash，
+  // 到不了具体那一节，也没法让它聚焦密码框。
+  if (btn.dataset.needSetup) {
+    chrome.tabs.create({ url: chrome.runtime.getURL("options.html#sync") });
+    window.close();
+    return;
+  }
   const tombs = await getTombstones();
   // 本地空但有待删墓碑时也要能同步——否则"删掉最后一条"这个动作
   // 永远推不到云端，云端那条就成了永久的鬼影。
@@ -447,12 +458,12 @@ $("sync").addEventListener("click", async () => {
 
   // 成功也要把"顺带发生了什么"说出来。尤其是 pulledRemoved——
   // 那是别处删掉、本地跟着清掉的记录，不说的话用户会以为记录莫名少了。
-  const parts = ["✓ 已同步 " + res.synced + " 条"];
+  const parts = ["已同步 " + res.synced + " 条"];
   if (res.deleted) parts.push("推送删除 " + res.deleted);
   if (res.pulledRemoved) parts.push("本地清掉 " + res.pulledRemoved + " 条（别处已删）");
   if (res.pulledRevived) parts.push(res.pulledRevived + " 条已恢复");
   const left = await getTombstones();
-  if (left.length) parts.push("⚠ " + left.length + " 条删除未生效，下次重试");
+  if (left.length) parts.push(left.length + " 条删除未生效，下次重试");
   el.textContent = parts.join(" · ");
 
   // 云端可能删掉了本地记录，列表要重新读一遍。
@@ -461,4 +472,12 @@ $("sync").addEventListener("click", async () => {
   setTimeout(() => load(), 2500);
 });
 
+// ③ 说明入口。操作说明和导出流程都搬到设置页了——popup 每天开几十次，
+// 不该常驻两段只在头几次有用的文字。这里只留一个入口。
+$("help").addEventListener("click", (e) => {
+  e.preventDefault();
+  openOptions("#help");
+});
+
 load();
+

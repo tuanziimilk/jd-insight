@@ -9,6 +9,18 @@ import {
 
 const $ = (id) => document.getElementById(id);
 
+/* 去掉 ✓ / ✗ 之后成功失败只靠文案，所以状态必须带颜色类——
+ * 不然"去 emoji"就成了退步。这两个函数是唯一的写入口，
+ * 避免某处忘了清掉上一次的 class。 */
+function setStatus(text, kind) {
+  $("status").className = kind || "";
+  $("status").textContent = text;
+}
+function setSyncStatus(text, kind) {
+  $("syncStatus").className = kind || "";
+  $("syncStatus").textContent = text;
+}
+
 const PRESETS = {
   "deepseek-flash": { baseUrl: "https://api.deepseek.com/v1", model: "deepseek-v4-flash" },
   "deepseek-pro": { baseUrl: "https://api.deepseek.com/v1", model: "deepseek-v4-pro" },
@@ -126,7 +138,7 @@ $("save").onclick = async () => {
     extraBody: $("extraBody").value.trim(),
     pricing: readPricing(),
   });
-  $("status").textContent = "✓ 已保存";
+  setStatus("已保存", "ok");
   setTimeout(() => ($("status").textContent = ""), 2200);
 };
 
@@ -138,30 +150,30 @@ $("test").onclick = async () => {
       [{ role: "user", content: "只回复两个字：可以" }],
       { maxTokens: 12 }
     );
-    $("status").textContent = "✓ 连接正常，模型回复：" + r.slice(0, 24);
+    setStatus("连接正常，模型回复：" + r.slice(0, 24), "ok");
   } catch (e) {
-    $("status").textContent = "✗ " + explainError(e.message);
+    setStatus(explainError(e.message), "bad");
   }
 };
 
 $("clearProfile").onclick = async () => {
   if (!confirm("清除已保存的简历？下次诊断会重新问你要。")) return;
   await chrome.storage.local.set({ profile: {} });
-  $("status").textContent = "✓ 简历已清除";
+  setStatus("简历已清除", "ok");
 };
 
 $("clearUsage").onclick = async () => {
   if (!confirm("重置累计用量统计？（不影响 JD 和简历）")) return;
   await resetUsage();
   await paintUsage();
-  $("status").textContent = "✓ 用量已重置";
+  setStatus("用量已重置", "ok");
 };
 
 $("clearKey").onclick = async () => {
   if (!confirm("清除 API Key？")) return;
   await saveSettings({ apiKey: "" });
   $("apiKey").value = "";
-  $("status").textContent = "✓ Key 已清除";
+  setStatus("Key 已清除", "ok");
 };
 
 /* ---------------- Cloud Sync ---------------- */
@@ -169,13 +181,13 @@ $("clearKey").onclick = async () => {
 async function paintSyncStatus() {
   const s = await getSyncSettings();
   if (!isSyncConfigured(s)) {
-    $("syncStatus").textContent = "未配置 Supabase URL / key";
+    setSyncStatus("未配置 Supabase URL / key", "bad");
   } else if (isLoggedIn(s)) {
-    $("syncStatus").textContent = "✓ 已登录：" + s.syncEmail;
+    setSyncStatus("已登录：" + s.syncEmail, "ok");
   } else if (s.refreshToken) {
-    $("syncStatus").textContent = "登录已过期，重新登录一次";
+    setSyncStatus("登录已过期，重新登录一次", "bad");
   } else {
-    $("syncStatus").textContent = "未登录";
+    setSyncStatus("未登录", "bad");
   }
 }
 
@@ -201,7 +213,7 @@ $("syncLogin").onclick = async () => {
     $("syncPassword").value = "";
     await paintSyncStatus();
   } catch (e) {
-    $("syncStatus").textContent = "✗ " + explainSyncError(e.message);
+    setSyncStatus(explainSyncError(e.message), "bad");
   }
 };
 
@@ -228,7 +240,7 @@ $("syncNow").onclick = async () => {
   });
   $("syncNow").disabled = false;
   if (res.ok) {
-    const parts = [`✓ 已同步 ${res.synced} 条`];
+    const parts = [`已同步 ${res.synced} 条`];
     if (res.deleted) parts.push(`推送删除 ${res.deleted} 条`);
     // 工作台/其他设备删掉的记录，本地也跟着清掉了——必须说出来，
     // 否则用户会以为"我的记录莫名少了几条"
@@ -236,10 +248,12 @@ $("syncNow").onclick = async () => {
     if (res.pulledRevived) parts.push(`${res.pulledRevived} 条重新采集后已恢复`);
     const left = await getTombstones();
     // 墓碑没清完要说出来：那意味着云端还留着已经被本地删掉的记录
-    if (left.length) parts.push(`⚠ ${left.length} 条删除未生效，下次同步重试`);
+    if (left.length) parts.push(`${left.length} 条删除未生效，下次同步重试`);
+    $("syncProgress").className = "";
     $("syncProgress").textContent = parts.join(" · ");
   } else {
-    $("syncProgress").textContent = `✗ 同步到第 ${res.synced} 条时失败：${res.reason || ""}`;
+    $("syncProgress").className = "bad";
+    $("syncProgress").textContent = `同步到第 ${res.synced} 条时失败：${res.reason || ""}`;
   }
 };
 
@@ -251,5 +265,25 @@ async function loadSync() {
   await paintSyncStatus();
 }
 
+/* popup 的「同步到云端」在未配置/未登录时会打开 options.html#sync。
+ * 光靠浏览器的锚点跳转只能滚到那一节，人还要自己找输入框——
+ * 既然已经知道他是为什么来的，就直接把光标放好。 */
+async function focusFromHash() {
+  const h = location.hash;
+  if (!h) return;
+  const el = document.querySelector(h);
+  if (!el) return;
+  el.scrollIntoView({ block: "start" });
+  if (h !== "#sync") return;
+  await loadSync(); // 等 URL/key/邮箱填回去，才知道该聚焦哪一个
+  const st = await getSyncSettings();
+  const target = !isSyncConfigured(st)
+    ? $("supabaseUrl") // 连 URL 都没有，从第一个空格子开始
+    : $("syncPassword");
+  target.focus();
+  target.select?.();
+}
+
 loadSync();
 load();
+focusFromHash();

@@ -164,7 +164,7 @@ function addUsage(bubble, res) {
   d.className = "usage";
   d.textContent =
     bits.join(" · ") + " tok · " + money +
-    (u.estimated ? "  ⚠ 端点未回 usage，按字符数估算" : "");
+    (u.estimated ? "  端点未回 usage，按字符数估算" : "");
   bubble.parentElement.appendChild(d);
   paintSession();
 }
@@ -183,7 +183,7 @@ function paintSession() {
     "输入 " + SESSION.inTok.toLocaleString() + " tok（缓存命中 " + hitRate + "%）\n" +
     "输出 " + SESSION.outTok.toLocaleString() + " tok" +
     (SESSION.reasonTok ? "（其中思考 " + SESSION.reasonTok.toLocaleString() + "）" : "") +
-    (SESSION.unpriced ? "\n⚠ " + SESSION.unpriced + " 次未配价格，钱数不含它们" : "");
+    (SESSION.unpriced ? "\n" + SESSION.unpriced + " 次未配价格，钱数不含它们" : "");
 }
 
 /* ---------------------------------------------------------------- 槽位追问 */
@@ -206,7 +206,7 @@ function askSlot(slot, onFill) {
   const d = document.createElement("div");
   d.className = "msg a";
   d.innerHTML =
-    '<div class="slot"><h4>⚠ ' + esc(cfg.title) + "</h4>" +
+    '<div class="slot"><h4>' + esc(cfg.title) + "</h4>" +
     "<p>" + esc(cfg.tip) + "</p>" +
     '<textarea placeholder="' + esc(cfg.ph) + '"></textarea>' +
     '<div class="row"><button class="primary">保存并继续</button>' +
@@ -359,7 +359,7 @@ async function ask(question, opts = {}) {
       });
     } catch (e) {
       b.classList.remove("dots");
-      b.innerHTML = md("⚠️ " + explainError(e.message));
+      b.innerHTML = md(explainError(e.message));
       if (e.message === "NO_KEY") {
         const btn = document.createElement("button");
         btn.className = "ghost"; btn.textContent = "去设置";
@@ -393,7 +393,7 @@ async function boot() {
 
   const st = await getSettings();
   if (!hasKey(st)) {
-    $("hint").innerHTML = "⚠ 还没配 API Key，只有「统计」类问题能用。点右上角 ⚙ 配置。";
+    $("hint").innerHTML = "还没配 API Key，只有「统计」类问题能用。点右上角「设置」配置。";
   }
 
   addSys(
