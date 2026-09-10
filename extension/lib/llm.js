@@ -9,9 +9,17 @@
  *   但物理接触这台电脑的人能看到。README 里明确写了这一点。
  */
 
+import { builtinPricing } from "./providers.js";
+
 const DEFAULTS = {
+  // 厂商 id（见 lib/providers.js）。空 = 自定义端点。
+  provider: "deepseek",
+  // key 按厂商分开存：{ deepseek: "sk-…", openai: "sk-…" }。
+  // ⚠️ 换厂商不用重填 key——否则"支持多模型"等于没支持，人懒得换就不换了。
+  // 旧版只有一个 apiKey 字段，getKey() 里做了兼容。
+  keys: {},
   baseUrl: "https://api.deepseek.com/v1",
-  model: "deepseek-v4-flash",
+  model: "deepseek-flash",
   temperature: 0.3,
   maxTokens: 2000,
   extraBody: "",   // 厂商特有参数（JSON），例如关掉思考模式——见 options 页说明
@@ -25,36 +33,36 @@ const DEFAULTS = {
   pricing: {},
 };
 
-/** 取当前模型的价格档；没配就返回 null（上层显示「未配价格」而不是 ¥0） */
-/**
- * 估算价格（元 / 百万 token）。**只是估算**，界面上也这么标。
+/* 参考价（元 / 百万 token）。**只是参考**，界面上也这么标。
+ * 取值原则、来源、抄录日期全部写在 lib/providers.js 的文件头，不在这儿重复。
  *
- * 来源：DeepSeek 官方定价页（platform.deepseek.com），2026-09-10 抄的美元价。
- *
- * 三条取值原则：
- *   1. **取高峰价，不取低谷价。** 官方低谷价是高峰价的一半。估算宁可偏高——
- *      偏低会让你以为某个功能很便宜而放开用，月底才发现不是；
- *      偏高最多让你少用一点，代价小得多。
- *   2. 汇率按 1 USD = 7.2 CNY 折算。汇率天天变，但它对结论的影响远小于
- *      "命中缓存还是没命中"这个量级差（0.10 vs 3.17，差 30 倍）。
- *   3. flash-vision-exp 和 flash 同价（官方页面上就是同一列价格）。
- *
- * ⚠️ 这份数字一定会过期。过期的表现是"看起来精确但其实错"——所以设置页里
- * 每一行都标着「预估」，并且写了去哪核对。要准确就自己覆盖它。
- */
-export const PRICING_ESTIMATE = {
-  // 单价：in = 输入未命中缓存，cacheIn = 输入命中缓存，out = 输出（含思考 token）
-  "deepseek-v4-flash": { in: 3.17, cacheIn: 0.1, out: 9.5 },
-  "deepseek-v4-pro": { in: 9.5, cacheIn: 0.32, out: 28.51 },
-  "deepseek-v4-flash-vision-exp": { in: 3.17, cacheIn: 0.1, out: 9.5 },
-};
+ * ⚠️ 2026-09-10 第二次改：不再手抄一份常量，直接从 lib/providers.js 生成。
+ *   原来这里是一份手写的 DeepSeek 三行表，而模型目录在 options.html 里另写了
+ *   一份下拉——两份数据必然分叉：目录里加了模型，这里不会跟着有价格，
+ *   于是新模型永远显示"未配价格"。现在目录和计价是同一份数据。
+ *   单价：in = 输入未命中缓存，cacheIn = 输入命中缓存（查不到就是 null），
+ *        out = 输出（含思考 token）。单位：元 / 百万 token。 */
+export const PRICING_ESTIMATE = builtinPricing();
 
+/**
+ * 取某个模型的价格档。优先级：**用户手填 > 内置参考价 > null**。
+ *
+ * ⚠️ 加内置兜底是这次的一个行为变化，值得说清楚：
+ *   原来只读 s.pricing —— 而 s.pricing 只在用户打开过设置页时才会被铺上默认值。
+ *   于是「装完插件直接用」的路径下，成本永远显示"未配价格"，
+ *   而我们**明明有一份查过来源的参考价**。那不是谨慎，是信息藏起来了。
+ *
+ * ⚠️ 「全为 0」在两种来源下含义相反，所以判断不能合并：
+ *   · 用户手填全 0 = 这一行他还没填，应该退回内置价；
+ *   · 内置全 0 = 本地 Ollama，那是**真的免费**，应该显示 ¥0 而不是"未知"。
+ */
 export function priceOf(s, model) {
-  const m = model || s.model;
-  const p = (s.pricing || {})[m];
-  if (!p) return null;
-  const hasAny = ["in", "cacheIn", "out"].some((k) => Number(p[k]) > 0);
-  return hasAny ? p : null;
+  const m = model || (s && s.model);
+  if (!m) return null;
+  const user = ((s && s.pricing) || {})[m];
+  if (user && ["in", "cacheIn", "out"].some((k) => Number(user[k]) > 0)) return user;
+  const builtin = PRICING_ESTIMATE[m];
+  return builtin || null;
 }
 
 /**
@@ -137,8 +145,21 @@ export async function saveSettings(patch) {
   return next;
 }
 
+/**
+ * 取当前厂商的 key。
+ * 兼容顺序：keys[provider] → 旧字段 apiKey。
+ * ⚠️ 旧字段必须保留读取：升级前用户填的 key 存在 apiKey 里，
+ *   如果直接改成只读 keys[provider]，所有老用户升级后会突然"没配 key"，
+ *   而他们并没有做任何操作——那是把升级做成了故障。
+ */
+export function getKey(s) {
+  if (!s) return "";
+  const byProvider = s.keys && s.provider ? s.keys[s.provider] : "";
+  return String(byProvider || s.apiKey || "").trim();
+}
+
 export function hasKey(s) {
-  return !!(s && s.apiKey && s.apiKey.trim());
+  return !!getKey(s);
 }
 
 /**
@@ -179,7 +200,7 @@ export async function chatStream(messages, onDelta, opts = {}) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: "Bearer " + s.apiKey.trim(),
+        Authorization: "Bearer " + getKey(s),
       },
       body: JSON.stringify(body),
       signal: ctrl.signal,

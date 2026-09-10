@@ -105,32 +105,37 @@
 
   <fieldset>
     <legend>Model</legend>
-    <label for="preset">快速选择</label>
-    <select id="preset">
-      <option value="">— 自定义 —</option>
-      <option value="deepseek-flash">DeepSeek V4 Flash（便宜，推荐起步）</option>
-      <option value="deepseek-pro">DeepSeek V4 Pro（更强，更贵）</option>
-      <option value="openai">OpenAI</option>
-      <option value="moonshot">Moonshot / Kimi</option>
-      <option value="dashscope">阿里云百炼（通义）</option>
-      <option value="ollama">本地 Ollama（免费，需自己跑）</option>
-    </select>
-    <p class="tip">选完会自动填下面两栏，只需再填 Key。</p>
-
-    <label for="baseUrl">Base URL</label>
-    <input id="baseUrl" placeholder="https://api.deepseek.com/v1">
-    <p class="tip">任何 OpenAI 兼容的 <code>/chat/completions</code> 端点都行。注意要带 <code>/v1</code>。</p>
+    <label for="provider">厂商</label>
+    <select id="provider"></select>
+    <p class="tip">
+      选完会自动填 Base URL 和模型列表。<b>Key 按厂商分开存</b>——
+      换厂商不用重新粘一次 key，所以你可以配好几家、随时切。
+    </p>
 
     <div class="row">
       <div>
-        <label for="model">模型</label>
-        <input id="model" placeholder="deepseek-chat">
+        <label for="modelSel">模型</label>
+        <select id="modelSel"></select>
       </div>
       <div>
-        <label for="apiKey">API Key</label>
+        <label for="apiKey">API Key<span id="keyFor" class="mini"></span></label>
         <input id="apiKey" type="password" placeholder="sk-…">
       </div>
     </div>
+    <p class="tip" id="provNote"></p>
+
+    <details id="advWrap">
+      <summary class="mini" style="cursor:pointer">高级：自定义端点 / 自定义模型名</summary>
+      <label for="baseUrl">Base URL</label>
+      <input id="baseUrl" placeholder="https://api.deepseek.com/v1">
+      <p class="tip">任何 OpenAI 兼容的 <code>/chat/completions</code> 端点都行。注意要带 <code>/v1</code>。</p>
+      <label for="modelCustom">自定义模型名</label>
+      <input id="modelCustom" placeholder="留空 = 用上面下拉选的">
+      <p class="tip">
+        填了就以这里为准。用在两种情况：下拉里还没有的新模型，
+        或者<b>火山方舟的接入点 ID</b>（<code>ep-…</code> 那种）。
+      </p>
+    </details>
 
     <label for="extraBody">附加请求参数（JSON，可空）</label>
     <input id="extraBody" placeholder='{"thinking": {"type": "disabled"}}'>
@@ -158,12 +163,14 @@
     <legend>Pricing</legend>
     <p class="tip" style="margin-top:0">
       <b>只用于估算花费，不影响调用。</b>单位：元 / 百万 token。<br>
-      下面这几行是<b>预估默认值</b>（2026-09-10 抄自 DeepSeek 官方定价页）。
-      取的是<b>高峰价</b>、汇率按 1 USD = 7.2 CNY 折算——估算宁可偏高：
-      偏低会让你以为某个功能很便宜而放开用，月底才发现不是。<br>
-      <b>价格一定会过期</b>，要准确就自己去官网抄当前价覆盖它。你填过的值不会被
-      默认值盖掉。<br>
-      DeepSeek 价格页：<code>platform.deepseek.com</code> → 定价
+      下面这些是<b>内置参考价</b>，2026-09-10 抄自各厂官方定价页
+      （每行右边写着来源）。取值一律<b>取贵的那档</b>：
+      不取 DeepSeek 低谷半价、不取 Batch 五折、不取 Gemini 的限时优惠价——
+      估算偏低会让你以为某功能很便宜而放开用，月底才发现不是；偏高最多让你少用一点。
+      美元价按 1 USD = 7.2 CNY 折算。<br>
+      <b>价格一定会过期。</b>要准确就去官网抄当前价覆盖它，
+      <b>你填过的值永远优先于内置价</b>。<br>
+      查不到缓存命中价的（火山、硅基流动）留空，界面显示「未知」——<b>不编数字</b>。
     </p>
     <table id="priceTable">
       <tr>
@@ -171,6 +178,7 @@
         <th>输入<br><span class="mini">缓存未命中</span></th>
         <th>输入<br><span class="mini">缓存命中</span></th>
         <th>输出<br><span class="mini">含思考 token</span></th>
+        <th>来源</th>
       </tr>
     </table>
     <div class="bar" style="margin-top:10px">

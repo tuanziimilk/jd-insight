@@ -1,6 +1,8 @@
 import {
   getSettings, saveSettings, chatOnce, explainError,
   getUsageTotal, resetUsage, fmtCost, PRICING_ESTIMATE } from "./lib/llm.js";
+import { PROVIDERS, getProvider, getModel, providerByBaseUrl, priceSource }
+  from "./lib/providers.js";
 import {
   getSyncSettings, isSyncConfigured, isLoggedIn, login, logout, syncAll, explainSyncError,
   getTombstones,
@@ -20,19 +22,16 @@ function setSyncStatus(text, kind) {
   $("syncStatus").textContent = text;
 }
 
-const PRESETS = {
-  "deepseek-flash": { baseUrl: "https://api.deepseek.com/v1", model: "deepseek-v4-flash" },
-  "deepseek-pro": { baseUrl: "https://api.deepseek.com/v1", model: "deepseek-v4-pro" },
-  openai: { baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
-  moonshot: { baseUrl: "https://api.moonshot.cn/v1", model: "moonshot-v1-8k" },
-  dashscope: {
-    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    model: "qwen-plus",
-  },
-  ollama: { baseUrl: "http://localhost:11434/v1", model: "qwen2.5:7b" },
-};
+/* ⚠️ 原来这里手抄了一份 PRESETS（六个厂商的 baseUrl + 一个模型名），
+   而模型下拉在 options.html 里又写了一份 <option>，价格表在 llm.js 里
+   写了第三份。三份数据必然分叉——实测就分叉了：PRESETS 里写的
+   deepseek-v4-flash 已经不是官方现役模型名（官方现在叫 deepseek-flash），
+   而价格表那份也还挂着一个早就下线的 vision-exp。
+   现在全部来自 lib/providers.js 一处。 */
 
-const FIELDS = ["baseUrl", "model", "apiKey", "temperature", "maxTokens", "extraBody"];
+/* baseUrl / model / apiKey 不在这里了——它们各有自己的填充逻辑
+   （厂商决定 baseUrl、下拉决定 model、key 按厂商取）。 */
+const FIELDS = ["temperature", "maxTokens", "extraBody"];
 
 /* ---------------- 价格表：按模型一行三档 ---------------- */
 let PRICING = {};
@@ -53,6 +52,14 @@ function priceRow(model, p) {
   const ii = mk(p.in, "—", 1);
   const ic = mk(p.cacheIn, "留空=同未命中", 1);
   const io_ = mk(p.out, "—", 1);
+  // 来源列：这个数字是哪来的、哪天抄的。没有出处的价格等于没有价格
+  const tdSrc = document.createElement("td");
+  tdSrc.className = "mini";
+  tdSrc.style.color = "var(--muted)";
+  const src = priceSource(model);
+  tdSrc.textContent = src ? src.asOf + " · " + src.src : (model ? "你手填的" : "—");
+  tr.appendChild(tdSrc);
+
   const tdDel = document.createElement("td");
   tdDel.style.border = "0";
   const del = document.createElement("button");
@@ -110,39 +117,160 @@ async function paintUsage() {
   $("uSince").textContent = t.since || "—";
 }
 
+/* ---------------- 厂商 / 模型下拉 ---------------- */
+
+/* key 按厂商分开存。载入时整份读进来，切厂商只是换显示的那一个，
+   保存时写回对应的那一格——这样配了三家就是三个 key，互不覆盖。 */
+let KEYS = {};
+
+function paintProviders(pid) {
+  const sel = $("provider");
+  sel.innerHTML = "";
+  for (const p of PROVIDERS) {
+    const o = document.createElement("option");
+    o.value = p.id;
+    o.textContent = p.label;
+    sel.appendChild(o);
+  }
+  // 逃生舱放最后：它是兜底，不是默认路径
+  const c = document.createElement("option");
+  c.value = "";
+  c.textContent = "— 自定义端点 —";
+  sel.appendChild(c);
+  sel.value = pid || "";
+}
+
+/** 模型下拉。选项文字里带上价格——选择的那一刻才是价格有用的时刻。 */
+function paintModels(pid, modelId) {
+  const sel = $("modelSel");
+  sel.innerHTML = "";
+  const p = getProvider(pid);
+  if (!p) {
+    const o = document.createElement("option");
+    o.value = "";
+    o.textContent = "自定义端点 —— 在下面「高级」里填模型名";
+    sel.appendChild(o);
+    sel.disabled = true;
+    return;
+  }
+  sel.disabled = false;
+  for (const m of p.models) {
+    const o = document.createElement("option");
+    o.value = m.id;
+    const free = !m.in && !m.out;
+    o.textContent = m.label + (free ? "　免费" : "　入 ¥" + m.in + " / 出 ¥" + m.out);
+    sel.appendChild(o);
+  }
+  sel.value = p.models.some((m) => m.id === modelId) ? modelId : p.models[0].id;
+}
+
+function paintProviderNote(pid) {
+  const p = getProvider(pid);
+  const el = $("provNote");
+  $("keyFor").textContent = p ? "（" + p.label + "）" : "";
+  if (!p) {
+    el.textContent = "自定义端点：Base URL 和模型名都在下面「高级」里填。";
+    return;
+  }
+  const bits = [];
+  if (p.note) bits.push(esc(p.note));
+  const links = [];
+  if (p.keyUrl) links.push("拿 Key：<code>" + esc(p.keyUrl) + "</code>");
+  if (p.priceUrl) links.push("核对价格：<code>" + esc(p.priceUrl) + "</code>");
+  if (links.length) bits.push(links.join("　·　"));
+  el.innerHTML = bits.join("<br>");
+}
+
+/* 这一页原来没有转义函数，而 provider 的 note 里有中文引号和斜杠。
+   现在这些字符串是我写在代码里的常量、不是用户输入，但把它们
+   直接塞进 innerHTML 仍然是个坏习惯——以后有人往 providers.js 里
+   贴一段带 < 的说明就成了注入点。 */
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"]/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+}
+
+/** 切厂商：填 Base URL、重画模型列表、换出这家的 key */
+function applyProvider(pid, keepModel) {
+  const p = getProvider(pid);
+  if (p) $("baseUrl").value = p.baseUrl;
+  paintModels(pid, keepModel);
+  paintProviderNote(pid);
+  $("apiKey").value = KEYS[pid] || "";
+  // 本地 Ollama 不校验 key，但字段不能空
+  if (pid === "ollama" && !$("apiKey").value) $("apiKey").value = "ollama";
+  paintPricing(readPricing(), $("modelSel").value);
+}
+
 async function load() {
   const s = await getSettings();
   FIELDS.forEach((k) => ($(k).value = s[k] ?? ""));
+  KEYS = { ...(s.keys || {}) };
+
+  /* 兼容老设置：升级前只有 baseUrl + apiKey，没有 provider。
+     按 baseUrl 反查厂商，并把那个 key 归到查出来的厂商名下——
+     否则老用户升级后会看到一个空的 Key 框，以为配置丢了。 */
+  let pid = s.provider;
+  if (!pid) {
+    const guess = providerByBaseUrl(s.baseUrl);
+    pid = guess ? guess.id : "";
+  }
+  if (s.apiKey && pid && !KEYS[pid]) KEYS[pid] = s.apiKey;
+
+  paintProviders(pid);
+  $("baseUrl").value = s.baseUrl || "";
   PRICING = s.pricing || {};
+
+  const known = getModel(pid, s.model);
+  paintModels(pid, s.model);
+  paintProviderNote(pid);
+  // 下拉里没有的模型名 → 它是自定义的，放进高级栏并把高级栏展开
+  if (s.model && !known) {
+    $("modelCustom").value = s.model;
+    $("advWrap").open = true;
+  }
+  $("apiKey").value = KEYS[pid] || "";
+
   paintPricing(PRICING, s.model);
   await paintUsage();
 }
+
+$("provider").onchange = (e) => {
+  applyProvider(e.target.value, null);
+  $("modelCustom").value = "";
+  setStatus("已填入，记得保存");
+};
+
+$("modelSel").onchange = () => {
+  paintPricing(readPricing(), $("modelSel").value);
+  $("modelCustom").value = "";
+};
 
 $("addModel").onclick = () => {
   $("priceTable").appendChild(priceRow("", {}));
 };
 
-$("preset").onchange = (e) => {
-  const p = PRESETS[e.target.value];
-  if (!p) return;
-  $("baseUrl").value = p.baseUrl;
-  $("model").value = p.model;
-  paintPricing(readPricing(), p.model);   // 换模型时自动补一行价格
-  if (e.target.value === "ollama") $("apiKey").value = "ollama"; // 本地不校验，但字段不能空
-  $("status").textContent = "已填入，记得保存";
-};
-
 $("save").onclick = async () => {
+  const pid = $("provider").value;
+  // 自定义模型名优先——它存在的理由就是"下拉里还没有"或"方舟接入点 ID"
+  const model = $("modelCustom").value.trim() || $("modelSel").value;
+  const key = $("apiKey").value.trim();
+  if (pid) KEYS[pid] = key;
+
   await saveSettings({
+    provider: pid,
+    keys: KEYS,
+    // 旧字段清空：key 已经归到 keys[provider] 里了，两处都留会分不清谁是真的
+    apiKey: "",
     baseUrl: $("baseUrl").value.trim(),
-    model: $("model").value.trim(),
-    apiKey: $("apiKey").value.trim(),
+    model,
     temperature: parseFloat($("temperature").value) || 0.3,
     maxTokens: parseInt($("maxTokens").value, 10) || 2000,
     extraBody: $("extraBody").value.trim(),
     pricing: readPricing(),
   });
-  setStatus("已保存", "ok");
+  const n = Object.values(KEYS).filter((v) => v && v.trim()).length;
+  setStatus("已保存" + (n > 1 ? "（已配 " + n + " 家，切厂商不用重填 key）" : ""), "ok");
   setTimeout(() => ($("status").textContent = ""), 2200);
 };
 
@@ -174,10 +302,15 @@ $("clearUsage").onclick = async () => {
 };
 
 $("clearKey").onclick = async () => {
-  if (!confirm("清除 API Key？")) return;
-  await saveSettings({ apiKey: "" });
+  const pid = $("provider").value;
+  const p = getProvider(pid);
+  const who = p ? p.label : "自定义端点";
+  if (!confirm("清除「" + who + "」的 API Key？其他厂商的 key 不动。")) return;
+  delete KEYS[pid];
+  // 旧字段一起清掉，否则 getKey() 会退回去用它，看起来像"没清干净"
+  await saveSettings({ keys: KEYS, apiKey: "" });
   $("apiKey").value = "";
-  setStatus("Key 已清除", "ok");
+  setStatus(who + " 的 Key 已清除", "ok");
 };
 
 /* ---------------- Cloud Sync ---------------- */
