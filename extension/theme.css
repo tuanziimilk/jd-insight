@@ -81,7 +81,24 @@
   --stop: #bd2521;
   --stop-soft: #f8e5e2;
 
-  --mono: "IBM Plex Mono", ui-monospace, Consolas, "Cascadia Mono", monospace;
+  /* ⚠️ 等宽栈**必须**在末尾挂一个中文黑体，这是修过的一个真 bug：
+     原来是 "IBM Plex Mono", ui-monospace, Consolas, "Cascadia Mono", monospace
+     —— 这一串里没有任何一个有中文字形。于是所有走 --mono 的行里，
+     中文都掉到系统默认 CJK 字体，Windows 上就是**宋体**，而这些行大多是
+     10–11px。宋体的横笔画在 15px 以下会消失，10.5px 的中文基本读不了。
+     浏览器是按字符逐个回退的，所以在栈尾加黑体不会破坏等宽：
+     拉丁字母和数字仍然走 Consolas（表格对齐照旧），只有中文改走黑体。
+
+     字号下限（跟代码一致，别写成一个代码里没遵守的数）：
+       · 需要连读的中文说明文字 ≥ 12px
+       · 短标签类中文（想投 / +薪资 / 表头）≥ 11.5px
+       · 唯一允许 10.5px 的是 .sec，前提是只放拉丁大写
+     等宽字只给真正的"数据"——数字、文件路径、时间戳。
+     中文说明文字一律 --sans。C 案里等宽是数据层的标记，不是装饰。
+     ⚠️ 注意路径也可能含中文：「05-资源库/JD原始数据/」就在 popup 底部，
+     所以那处 code 也提到了 12px。 */
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, "Cascadia Mono", monospace,
+    "Microsoft YaHei", "PingFang SC";
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Microsoft YaHei", sans-serif;
 
@@ -133,7 +150,10 @@ body {
 /* ── 共用原子（三个页面重复出现的东西放这儿，别再各写一遍）── */
 
 /* 段落标题。C 案里小标题一律等宽大写 —— 这是它性格的主要来源之一，
-   不是装饰：它把"标签"和"内容"在字形上彻底分开。 */
+   不是装饰：它把"标签"和"内容"在字形上彻底分开。
+   ⚠️ 它是 10.5px，唯一一处允许低于 12px 的地方，前提是**只放拉丁大写**
+   （SOURCES / USAGE 这类）。往里塞中文就会掉进小字号中文那个坑，
+   见 --mono 那段注释。要放中文就用 .st 或直接 --sans。 */
 .sec {
   font: 500 10.5px/1 var(--mono);
   letter-spacing: 0.1em;
@@ -147,8 +167,9 @@ body {
 .st {
   display: inline-flex;
   align-items: center;
-  font: 500 10.5px/1 var(--mono);
-  letter-spacing: 0.02em;
+  /* 装的是「想投」「已投」这类中文，所以是 sans 不是 mono，
+     而且不小于 11.5px —— 见 --mono 那段注释。 */
+  font: 500 11.5px/1 var(--sans);
   padding: 4px 6px;
   border: 1px solid var(--rule);
   border-radius: var(--r-sm);
