@@ -13,7 +13,8 @@
  *   2. 价格字段类型不对（写成字符串、写成 undefined）→ 成本静默算成 0。
  *   3. 老设置升级后"key 突然没了" → 那是把升级做成了故障。
  */
-import { PROVIDERS, builtinPricing, getProvider, getModel, providerByBaseUrl, priceSource, USD_CNY }
+import { PROVIDERS, builtinPricing, getProvider, getModel, providerByBaseUrl, priceSource,
+  USD_CNY, RETIRED_ALIASES, migrateModel, thinkOffBody }
   from "../extension/lib/providers.js";
 import { priceOf, getKey, hasKey, PRICING_ESTIMATE, estimateCost } from "../extension/lib/llm.js";
 
@@ -113,6 +114,35 @@ const c2 = estimateCost(usage, { model: "doubao-seed-2.0-lite", pricing: {} }, "
 const p2 = PRICING_ESTIMATE["doubao-seed-2.0-lite"];
 check("缓存价为 null 时退回未命中价（不低估）",
   Math.abs(c2 - (0.2 * p2.in + 0.01 * p2.out)) < 1e-9, c2.toFixed(4) + " 元");
+
+console.log("\n── 退役别名迁移 ──");
+/* 这一组防的是一个静默失败：存量配置里躺着一个已退役的模型名，
+   调用出去是笼统的 400/404，而界面上一切正常。 */
+check("deepseek-chat → 现役名", migrateModel("deepseek-chat") === "deepseek-flash");
+check("deepseek-reasoner → 现役名", migrateModel("deepseek-reasoner") === "deepseek-flash");
+check("deepseek-v4-flash（我自己早期写错的）→ 现役名",
+  migrateModel("deepseek-v4-flash") === "deepseek-flash");
+check("现役名不动", migrateModel("deepseek-flash") === "deepseek-flash");
+check("别人家的模型名不动", migrateModel("gpt-5-mini") === "gpt-5-mini");
+check("方舟接入点 ID 不动（那是合法的自定义模型名）",
+  migrateModel("ep-20260910-abcde") === "ep-20260910-abcde");
+/* 迁移后的目标必须真的在目录里。否则"迁移"只是把一个错名换成另一个错名。 */
+for (const [from, to] of Object.entries(RETIRED_ALIASES)) {
+  check("迁移目标在目录里：" + from + " → " + to, !!PRICING_ESTIMATE[to]);
+}
+
+console.log("\n── 关闭思考模式 ──");
+check("DeepSeek 有这个开关", !!thinkOffBody("deepseek"));
+check("参数是可序列化的对象",
+  JSON.stringify(thinkOffBody("deepseek")).indexOf("disabled") > 0,
+  JSON.stringify(thinkOffBody("deepseek")));
+/* ⚠️ 查不到参数名的厂商必须返回 null，界面上那个开关就不出现。
+   宁可少一个开关，也不要发一个厂商不认识的参数过去——
+   那会让整个请求 400，而用户以为自己只是"勾了个省钱选项"。 */
+check("查不到参数名的厂商返回 null（不瞎发参数）",
+  thinkOffBody("openai") === null && thinkOffBody("gemini") === null &&
+  thinkOffBody("siliconflow") === null);
+check("未知厂商也返回 null", thinkOffBody("不存在的厂商") === null);
 
 console.log("\n── 参考价一览（元 / 百万 token）──");
 for (const p of PROVIDERS) {

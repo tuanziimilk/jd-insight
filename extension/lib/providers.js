@@ -178,6 +178,56 @@ export const PROVIDERS = [
   },
 ];
 
+/* ── 退役别名迁移 ───────────────────────────────────
+ *
+ * ⚠️ 这不是"顺手做的兼容"，是修一个真 bug。
+ * 实测（用户截图）：设置里存的模型是 `deepseek-v4-flash`，而下拉里没有它，
+ * 于是走了"自定义模型名"那条路——**高级栏自动展开、把一个已经退役的
+ * 别名当成用户的自定义选择**。DeepSeek 在 2026-07-24 就把 deepseek-chat /
+ * deepseek-reasoner 退役了，现役名是 deepseek-flash。
+ * 那个配置调用出去就是错，而界面上看起来一切正常。
+ *
+ * 所以退役名必须**静默迁移**，不能当成自定义。
+ * 自定义那条路只留给"下拉里还没有的新模型"和"方舟接入点 ID"。
+ */
+export const RETIRED_ALIASES = {
+  // DeepSeek 2026-07-24 退役的两个别名 + 我自己早期写错的那个
+  "deepseek-chat": "deepseek-flash",
+  "deepseek-reasoner": "deepseek-flash",
+  "deepseek-v4-flash": "deepseek-flash",
+  "deepseek-v4-flash-vision-exp": "deepseek-flash",
+};
+
+/** 退役名 → 现役名。不是退役名就原样返回。 */
+export function migrateModel(id) {
+  return RETIRED_ALIASES[id] || id;
+}
+
+/* ── 关闭思考模式 ───────────────────────────────────
+ *
+ * ⚠️ 原来这里是一个让用户手填 JSON 的输入框，提示写着"参数名各厂不同且会变，
+ * 请照官网文档填（我不猜）"。那句话是诚实的，但它把一件**该由工具知道**的事
+ * 推给了用户——而这个开关是本项目最有效的省钱手段之一
+ * （DeepSeek V4 默认开思考，思考 token 按输出计费，用户还看不到内容）。
+ * 一个没人会去查文档填的字段等于不存在。
+ *
+ * 所以改成按厂商内置：知道参数名的就给一个复选框，不知道的就不显示。
+ * ⚠️ 只写我能确认的。查不到的厂商这里是 null，界面上那个复选框直接不出现——
+ * 宁可少一个开关，也不要发一个厂商不认识的参数过去。
+ */
+const THINK_OFF = {
+  deepseek: { thinking: { type: "disabled" } },
+  // 火山方舟的豆包同样支持 thinking 开关，参数形状和 DeepSeek 一致
+  volcengine: { thinking: { type: "disabled" } },
+  // OpenAI / Gemini / 硅基流动：各家关思考的方式不统一（有的是 model 变体、
+  // 有的是 reasoning_effort、有的压根不暴露），我没有可靠依据 → 不给开关。
+};
+
+/** 某厂商关思考的请求体片段；不支持就返回 null（界面上不显示这个开关） */
+export function thinkOffBody(providerId) {
+  return THINK_OFF[providerId] || null;
+}
+
 /* ── 查询辅助 ───────────────────────────────────────── */
 
 export function getProvider(id) {

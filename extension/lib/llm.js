@@ -9,7 +9,7 @@
  *   但物理接触这台电脑的人能看到。README 里明确写了这一点。
  */
 
-import { builtinPricing } from "./providers.js";
+import { builtinPricing, migrateModel } from "./providers.js";
 
 const DEFAULTS = {
   // 厂商 id（见 lib/providers.js）。空 = 自定义端点。
@@ -22,14 +22,15 @@ const DEFAULTS = {
   model: "deepseek-flash",
   temperature: 0.3,
   maxTokens: 2000,
-  extraBody: "",   // 厂商特有参数（JSON），例如关掉思考模式——见 options 页说明
-  // 按模型分别配价：{ 模型名: { in, cacheIn, out } }，单位「元 / 百万 token」
-  // ⚠️ **刻意不预填任何数字。** 价格是外部易变事实，写进代码迟早过期，
-  //    而一个"看起来精确但其实错的成本"比不显示更糟。首次使用请去官网抄当前价。
-  //
-  //    2026-09-10 更新：用户要求"填个预估的就够了"。所以 PRICING_ESTIMATE
-  //    提供一份**估算**默认值（只在用户一条都没配过时才铺进表格，
-  //    绝不覆盖手填的值）。三条取值原则见那个常量的注释。
+  // 厂商特有请求参数（JSON 字符串）。现在由设置页的「关闭思考模式」
+  // 复选框生成，参数名按厂商内置（providers.js 的 thinkOffBody）；
+  // 不再让用户手填 JSON——那个字段没人会去查文档填，等于不存在。
+  extraBody: "",
+  /* 用户手填的价格覆盖：{ 模型名: { in, cacheIn, out } }，元 / 百万 token。
+     ⚠️ 设置页里**已经没有编辑这个字段的界面了**（那张价格表删掉了，
+     理由见 options.js 里那段注释）。这里保留是为了两件事：
+     ① 老用户手填过的值不丢，priceOf() 仍然优先用它；
+     ② 内置价过期时的正解是更新 providers.js，不是让每个用户各自抄一遍。 */
   pricing: {},
 };
 
@@ -172,7 +173,11 @@ export async function chatStream(messages, onDelta, opts = {}) {
 
   const url = s.baseUrl.replace(/\/$/, "") + "/chat/completions";
   const body = {
-    model: opts.model || s.model,
+    /* ⚠️ 退役别名在**发请求这一层**也要迁移，不能只在设置页里迁。
+       设置页那次迁移要等用户打开设置页并点保存才生效；而存量配置里
+       躺着一个已退役的模型名（如 deepseek-v4-flash）时，用户什么都不做
+       就会一直调用失败——报错还是个笼统的 400/404，看不出是模型名的问题。 */
+    model: migrateModel(opts.model || s.model),
     messages,
     temperature: opts.temperature ?? s.temperature,
     max_tokens: opts.maxTokens ?? s.maxTokens,
@@ -181,8 +186,10 @@ export async function chatStream(messages, onDelta, opts = {}) {
     stream_options: { include_usage: true },
   };
 
-  // 厂商特有参数（如关闭思考模式）。做成用户可填的 JSON，
-  // 因为各厂参数名不一样、还会变——**我不猜参数名，让用户照官网文档填。**
+  /* 厂商特有参数（目前只有"关闭思考模式"）。存的是 JSON 字符串，
+     由设置页那个复选框写入，参数名按厂商内置。
+     ⚠️ 解析失败仍然抛错而不是忽略：这个字段现在是程序生成的，
+     解析不了说明代码有 bug，静默跳过会让"我明明关了思考"变成一个查不出的问题。 */
   if (s.extraBody && s.extraBody.trim()) {
     try {
       Object.assign(body, JSON.parse(s.extraBody));

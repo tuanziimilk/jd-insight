@@ -44,12 +44,8 @@
   p.note { margin:8px 0 0; font:12.5px/1.7 var(--sans); color:var(--muted) }
   p.note b, ol.steps b { color:var(--ink2); font-weight:600 }
   code { font-size:.88em }
-  table { border-collapse:collapse; width:100%; font-size:12.5px; margin-top:8px }
-  th,td { border:1px solid var(--rule); padding:5px 8px; text-align:left }
-  th { background:var(--sunk); font:600 11.5px/1.4 var(--sans); color:var(--ink2) }
-  th .mini { font-weight:400; font-size:12px; color:var(--muted) }
-  #priceTable input { padding:4px 6px; font-size:12px }
-  #priceTable td:first-child input { font-family:var(--mono) }
+  /* 表格样式全删了：价格表和 Data 那两张表都没了，这一页现在一个 table 都没有。
+     死 CSS 留着会让下次改的人以为"这页有表格" —— 删掉也是梳理的一部分。 */
 </style>
 </head>
 <body>
@@ -63,11 +59,155 @@
     代价是：<b>能物理接触这台电脑的人可以读到它</b>。共用电脑请用低额度的专用 key。
   </div>
 
+
+  <fieldset>
+    <legend>Model</legend>
+    <label for="provider">厂商</label>
+    <select id="provider"></select>
+    <p class="tip">
+      选完会自动填 Base URL 和模型列表。<b>Key 按厂商分开存</b>——
+      换厂商不用重新粘一次 key，所以你可以配好几家、随时切。
+    </p>
+
+    <!-- ⚠️ 模型下拉必须独占一行。原来它和 API Key 挤在两列里，
+         而选项文字是「名字＋价格」——实测被截断成「DeepSeek Flash（便宜，推荐起步） 入 ¥」，
+         价格那半截根本看不见。价格改成下拉**下面**单独一行，不塞进选项文字。 -->
+    <label for="modelSel">模型</label>
+    <select id="modelSel"></select>
+    <p class="tip" id="modelPrice"></p>
+
+    <label for="apiKey">API Key<span id="keyFor" class="mini"></span></label>
+    <input id="apiKey" type="password" placeholder="sk-…">
+    <p class="tip" id="provNote"></p>
+
+    <!-- ⚠️ 这个开关替掉了原来那个「附加请求参数（JSON，可空）」输入框。
+         那个框的提示写着"参数名各厂不同且会变，请照官网文档填（我不猜）"——
+         诚实，但它把一件该由工具知道的事推给了用户，而这是本项目最有效的
+         省钱手段之一（DeepSeek V4 默认开思考，思考 token 按输出计费且你看不到内容）。
+         一个没人会去查文档填的字段等于不存在。参数名现在按厂商内置，
+         查不到的厂商这个开关直接不显示——宁可少一个开关，也不要发一个
+         厂商不认识的参数过去。 -->
+    <p id="thinkWrap" style="margin:13px 0 0">
+      <label style="display:flex;gap:7px;align-items:flex-start;margin:0;font-weight:400">
+        <input type="checkbox" id="thinkOff" style="width:auto;margin-top:3px">
+        <span>关闭思考模式<span class="mini" id="thinkNote"></span></span>
+      </label>
+    </p>
+
+    <details id="advWrap" style="margin-top:14px">
+      <summary class="mini" style="cursor:pointer">高级（一般不用动）</summary>
+      <label for="baseUrl">Base URL</label>
+      <input id="baseUrl" placeholder="https://api.deepseek.com/v1">
+      <p class="tip">任何 OpenAI 兼容的 <code>/chat/completions</code> 端点都行。注意要带 <code>/v1</code>。</p>
+      <label for="modelCustom">自定义模型名</label>
+      <input id="modelCustom" placeholder="留空 = 用上面下拉选的">
+      <p class="tip">
+        填了就以这里为准。只用在两种情况：下拉里还没有的新模型，
+        或者<b>火山方舟的接入点 ID</b>（<code>ep-…</code> 那种）。
+      </p>
+      <!-- ⚠️ Temperature / Max tokens 原来在主界面上占一整行。删掉了：
+           默认 0.3 / 2000 就是对的，说明里自己都写着"求职分析要稳，别调高"。
+           一个"能调但不该调"的旋钮放在主界面上只增加认知负担。
+           留在高级里，因为偶尔要为长简历调 max_tokens。 -->
+      <div class="row" style="margin-top:14px">
+        <div>
+          <label for="temperature">Temperature</label>
+          <input id="temperature" type="number" step="0.1" min="0" max="2">
+        </div>
+        <div>
+          <label for="maxTokens">Max tokens</label>
+          <input id="maxTokens" type="number" step="100" min="256" max="65536">
+        </div>
+      </div>
+      <p class="tip">求职分析要结论稳定，temperature 别调高。</p>
+    </details>
+  </fieldset>
+
+  <fieldset id="sync">
+    <legend>Cloud Sync</legend>
+    <p class="tip" style="margin-top:0">
+      同步到 <code>career-web</code> 工作台用的同一套 Supabase 项目。
+      不装 SDK，手写基于 fetch 的客户端——和上面调模型是同一套零构建原则。
+    </p>
+    <!-- ⚠️ URL + anon key 收进 details：这两个值配一次就再也不动，
+         而它们原来占了这个区块一半的高度。日常真正要看的只有
+         「登录状态」和「同步」这一行。 -->
+    <details id="supaWrap">
+      <summary class="mini" style="cursor:pointer">Supabase 连接（配一次就不用再动）</summary>
+      <label for="supabaseUrl">Project URL</label>
+      <input id="supabaseUrl" placeholder="https://xxxx.supabase.co">
+      <label for="supabaseAnonKey">anon public key</label>
+      <input id="supabaseAnonKey" placeholder="eyJ...">
+      <p class="tip">
+        两个值都在 career-web 的 <code>.env.local</code> 里，或 Supabase Dashboard →
+        Settings → API 里能找到。anon key 可以公开——权限完全由数据库的 RLS 决定。
+      </p>
+    </details>
+
+    <div class="row" style="margin-top:14px">
+      <div>
+        <label for="syncEmail">邮箱</label>
+        <input id="syncEmail" type="email" placeholder="你的登录邮箱">
+      </div>
+      <div>
+        <label for="syncPassword">密码</label>
+        <input id="syncPassword" type="password" placeholder="同步专用密码">
+      </div>
+    </div>
+    <p class="tip">
+      需要先在 career-web 里登录一次，再用「设置同步密码」给这个账号加一个密码。
+      同一个账号，登录方式不影响权限。
+    </p>
+    <div class="bar" style="margin-top:12px">
+      <button id="syncLogin">登录</button>
+      <button class="ghost" id="syncLogout">退出</button>
+      <span id="syncStatus" style="font-size:12px;color:var(--muted)"></span>
+    </div>
+
+    <div class="bar" style="margin-top:13px">
+      <button id="syncNow">同步全部 JD 到云端</button>
+      <span id="syncProgress" style="font-size:12px;color:var(--muted)"></span>
+    </div>
+    <p class="tip">
+      只做 upsert，不做删除——本地删记录不会同步删云端，避免网络抖动导致的
+      空列表被误当成「真的清空了」而级联删掉云端数据。
+    </p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Data</legend>
+    <!-- ⚠️ 原来这里是两张表：一张三列的「本地存了什么」，一张七列的用量表。
+         隐私说明该有，但它是一段读一次的事实，不需要表格的结构；
+         用量的七列里有五列（输入 / 缓存命中率 / 输出 / 其中思考）
+         情报台每一轮回答下面已经显示了——设置页不该有第二份。
+         这里只留三个真正要在这看的数：调用次数、估算花费、从哪天开始算。 -->
+    <p class="tip" style="margin-top:0">
+      本地存着三样东西，都在这台电脑的浏览器里：<b>采集到的 JD</b>、
+      <b>你的简历正文</b>（只有诊断时会发给你选的模型厂商）、
+      <b>模型配置和 Key</b>。除此之外不存别的，也不往任何第三方发。
+    </p>
+    <p class="tip" style="margin-top:13px">
+      累计用量（本地统计）：调用 <b id="uCalls">—</b> 次 ·
+      估算花费 <b id="uCost">—</b> · 起始 <span id="uSince">—</span><br>
+      逐轮的 token 明细和缓存命中率在情报台每条回答下面看。
+    </p>
+    <div class="bar" style="margin-top:13px">
+      <button class="ghost" id="clearProfile">清除简历</button>
+      <button class="ghost" id="clearKey">清除 Key</button>
+      <button class="ghost" id="clearUsage">重置用量</button>
+    </div>
+  </fieldset>
+
   <!-- 这一节的内容是从 popup 搬过来的。popup 每天开几十次，
-       不该常驻两段只在头几次有用的文字；但也不能删掉，
-       所以放在设置页最前面，popup 底部留一个「使用说明」入口跳到这儿。 -->
+       不该常驻两段只在头几次有用的文字；但也不能删掉。
+       ⚠️ 原来它放在设置页**最前面**，结果整个首屏都是说明文字，
+       真正要改的东西被挤到下面——而人来这一页是为了改配置，
+       不是为了读教程。所以移到页尾并默认收起；
+       从 popup 的「使用说明」跳进来时 focusFromHash() 会自动展开。 -->
   <fieldset id="help">
     <legend>How to use</legend>
+    <details id="helpBody">
+    <summary class="mini" style="cursor:pointer">怎么存 JD、怎么看状态、怎么跑离线分析脚本</summary>
 
     <h3>怎么存一条 JD</h3>
     <ol class="steps">
@@ -98,173 +238,10 @@
       <li>运行 <code>99-脚本/analyze_jd.py</code>，出高频要求的汇总报告。</li>
     </ol>
     <p class="note">
-      如果你已经配好下面的<b>云端同步</b>，这条链路可以不用——
+      如果你已经配好上面的<b>云端同步</b>，这条链路可以不用——
       同步之后直接在 career-os 工作台里看，那边有匹配分析。
     </p>
-  </fieldset>
-
-  <fieldset>
-    <legend>Model</legend>
-    <label for="provider">厂商</label>
-    <select id="provider"></select>
-    <p class="tip">
-      选完会自动填 Base URL 和模型列表。<b>Key 按厂商分开存</b>——
-      换厂商不用重新粘一次 key，所以你可以配好几家、随时切。
-    </p>
-
-    <div class="row">
-      <div>
-        <label for="modelSel">模型</label>
-        <select id="modelSel"></select>
-      </div>
-      <div>
-        <label for="apiKey">API Key<span id="keyFor" class="mini"></span></label>
-        <input id="apiKey" type="password" placeholder="sk-…">
-      </div>
-    </div>
-    <p class="tip" id="provNote"></p>
-
-    <details id="advWrap">
-      <summary class="mini" style="cursor:pointer">高级：自定义端点 / 自定义模型名</summary>
-      <label for="baseUrl">Base URL</label>
-      <input id="baseUrl" placeholder="https://api.deepseek.com/v1">
-      <p class="tip">任何 OpenAI 兼容的 <code>/chat/completions</code> 端点都行。注意要带 <code>/v1</code>。</p>
-      <label for="modelCustom">自定义模型名</label>
-      <input id="modelCustom" placeholder="留空 = 用上面下拉选的">
-      <p class="tip">
-        填了就以这里为准。用在两种情况：下拉里还没有的新模型，
-        或者<b>火山方舟的接入点 ID</b>（<code>ep-…</code> 那种）。
-      </p>
     </details>
-
-    <label for="extraBody">附加请求参数（JSON，可空）</label>
-    <input id="extraBody" placeholder='{"thinking": {"type": "disabled"}}'>
-    <p class="tip">
-      直接合并进请求体，用来传厂商特有参数——最常用的是<b>关掉思考模式</b>。
-      <b>参数名各厂不同且会变，请照官网文档填</b>（我不猜）。<br>
-      DeepSeek V4 <b>默认开启思考模式</b>，思考产生的 token 计入输出计费但你看不到内容。
-      本工具多数任务（统计、检索问答）不需要思考，关掉能明显省钱。
-    </p>
-
-    <div class="row">
-      <div>
-        <label for="temperature">Temperature</label>
-        <input id="temperature" type="number" step="0.1" min="0" max="2">
-        <p class="tip">0.3 左右合适。求职分析要稳，别调高。</p>
-      </div>
-      <div>
-        <label for="maxTokens">Max tokens</label>
-        <input id="maxTokens" type="number" step="100" min="256" max="65536">
-      </div>
-    </div>
-  </fieldset>
-
-  <fieldset>
-    <legend>Pricing</legend>
-    <p class="tip" style="margin-top:0">
-      <b>只用于估算花费，不影响调用。</b>单位：元 / 百万 token。<br>
-      下面这些是<b>内置参考价</b>，2026-09-10 抄自各厂官方定价页
-      （每行右边写着来源）。取值一律<b>取贵的那档</b>：
-      不取 DeepSeek 低谷半价、不取 Batch 五折、不取 Gemini 的限时优惠价——
-      估算偏低会让你以为某功能很便宜而放开用，月底才发现不是；偏高最多让你少用一点。
-      美元价按 1 USD = 7.2 CNY 折算。<br>
-      <b>价格一定会过期。</b>要准确就去官网抄当前价覆盖它，
-      <b>你填过的值永远优先于内置价</b>。<br>
-      查不到缓存命中价的（火山、硅基流动）留空，界面显示「未知」——<b>不编数字</b>。
-    </p>
-    <table id="priceTable">
-      <tr>
-        <th>模型</th>
-        <th>输入<br><span class="mini">缓存未命中</span></th>
-        <th>输入<br><span class="mini">缓存命中</span></th>
-        <th>输出<br><span class="mini">含思考 token</span></th>
-        <th>来源</th>
-      </tr>
-    </table>
-    <div class="bar" style="margin-top:10px">
-      <button class="ghost" id="addModel">＋ 加一个模型</button>
-    </div>
-    <p class="tip">
-      <b>为什么要分「缓存命中 / 未命中」</b>：命中缓存的输入 token 单价低得多。
-      按同一个价算会<b>系统性高估成本</b>——高估会让你为了省钱而砍掉本该做的功能。<br>
-      缓存留空则退回按未命中价计算（保守，不会低估）。
-    </p>
-  </fieldset>
-
-  <fieldset id="sync">
-    <legend>Cloud Sync</legend>
-    <p class="tip" style="margin-top:0">
-      同步到 <code>career-web</code> 工作台用的同一套 Supabase 项目。
-      不装 SDK，手写基于 fetch 的客户端——和上面调模型是同一套零构建原则。
-    </p>
-    <label for="supabaseUrl">Supabase Project URL</label>
-    <input id="supabaseUrl" placeholder="https://xxxx.supabase.co">
-
-    <div class="row">
-      <div>
-        <label for="supabaseAnonKey">anon public key</label>
-        <input id="supabaseAnonKey" placeholder="eyJ...">
-      </div>
-    </div>
-    <p class="tip">
-      两个值都在 career-web 的 <code>.env.local</code> 里，或 Supabase Dashboard →
-      Settings → API 里能找到。anon key 可以公开——权限完全由数据库的 RLS 决定。
-    </p>
-
-    <div class="row">
-      <div>
-        <label for="syncEmail">邮箱</label>
-        <input id="syncEmail" type="email" placeholder="你的登录邮箱">
-      </div>
-      <div>
-        <label for="syncPassword">密码</label>
-        <input id="syncPassword" type="password" placeholder="同步专用密码">
-      </div>
-    </div>
-    <p class="tip">
-      用邮箱+密码登录，不用魔法链接——魔法链接的回调要处理跳转到扩展页面，
-      在 MV3 里要绕一圈，对个人工具不值得。<b>需要先在 career-web 里登录一次，
-      然后用「设置同步密码」功能给这个账号加一个密码</b>（同一账号，RLS 按身份判断，
-      跟你用哪种方式登录无关）。
-    </p>
-    <div class="bar">
-      <button id="syncLogin">登录</button>
-      <button class="ghost" id="syncLogout">退出</button>
-      <span id="syncStatus" style="font-size:12px;color:var(--muted)"></span>
-    </div>
-
-    <div class="bar" style="margin-top:13px">
-      <button id="syncNow">同步全部 JD 到云端</button>
-      <span id="syncProgress" style="font-size:12px;color:var(--muted)"></span>
-    </div>
-    <p class="tip">
-      只做 upsert，不做删除——本地删记录不会同步删云端，避免网络抖动导致
-      的空列表被误当成「真的清空了」而级联删掉云端数据。
-    </p>
-  </fieldset>
-
-  <fieldset>
-    <legend>Data</legend>
-    <p class="tip" style="margin-top:0">本地存了什么：</p>
-    <table>
-      <tr><th>键</th><th>内容</th><th>谁能看到</th></tr>
-      <tr><td><code>jds</code></td><td>采集到的 JD</td><td>只有你</td></tr>
-      <tr><td><code>profile</code></td><td>你粘贴的简历（用于诊断）</td><td>只有你 + 你选的模型厂商</td></tr>
-      <tr><td><code>llm</code></td><td>base_url / model / key</td><td>只有你</td></tr>
-    </table>
-    <p class="tip" style="margin-top:13px">累计用量（本地统计，用于「效率成本」这层指标）：</p>
-    <table>
-      <tr><th>调用</th><th>输入</th><th>缓存命中率</th><th>输出</th><th>其中思考</th><th>估算花费</th><th>起始</th></tr>
-      <tr>
-        <td id="uCalls">—</td><td id="uIn">—</td><td id="uHit">—</td>
-        <td id="uOut">—</td><td id="uReason">—</td><td id="uCost">—</td><td id="uSince">—</td>
-      </tr>
-    </table>
-    <div class="bar" style="margin-top:13px">
-      <button class="ghost" id="clearProfile">清除简历</button>
-      <button class="ghost" id="clearKey">清除 Key</button>
-      <button class="ghost" id="clearUsage">重置用量</button>
-    </div>
   </fieldset>
 
   <div class="bar">

@@ -1,8 +1,8 @@
 import {
   getSettings, saveSettings, chatOnce, explainError,
   getUsageTotal, resetUsage, fmtCost, PRICING_ESTIMATE } from "./lib/llm.js";
-import { PROVIDERS, getProvider, getModel, providerByBaseUrl, priceSource }
-  from "./lib/providers.js";
+import { PROVIDERS, getProvider, getModel, providerByBaseUrl, priceSource,
+  migrateModel, thinkOffBody } from "./lib/providers.js";
 import {
   getSyncSettings, isSyncConfigured, isLoggedIn, login, logout, syncAll, explainSyncError,
   getTombstones,
@@ -31,88 +31,33 @@ function setSyncStatus(text, kind) {
 
 /* baseUrl / model / apiKey 不在这里了——它们各有自己的填充逻辑
    （厂商决定 baseUrl、下拉决定 model、key 按厂商取）。 */
-const FIELDS = ["temperature", "maxTokens", "extraBody"];
+// extraBody 不在这里了：它由「关闭思考模式」那个开关生成，不再让用户手填 JSON
+const FIELDS = ["temperature", "maxTokens"];
 
-/* ---------------- 价格表：按模型一行三档 ---------------- */
+/* ⚠️ 这里原来是「价格表」：三个函数（priceRow / paintPricing / readPricing）
+   加 options.html 里一张可编辑的表格，让用户逐个模型填 输入/缓存/输出 三档单价。
+   **整段删掉了。**
+
+   删的理由：内置参考价已经带来源和抄录日期（lib/providers.js），
+   那张表是在让用户维护一份我已经维护好的数据。而且它实际上更糟——
+   用户截图里那张表只有一行、三个 0、来源写着"你手填的"，
+   因为 paintPricing 只在 s.pricing 为空时才铺内置价，而老配置里有一行遗留数据，
+   于是**18 个内置价一个都没显示出来**，累计用量还显示"1 次未配价格"。
+   一个把正确数据挡住的编辑界面，比没有这个界面差。
+
+   `pricing` 字段本身保留在存储里，priceOf() 也仍然优先用它——
+   老用户手填过的值不会丢，只是不再提供编辑入口。
+   价格过期的正解是更新 providers.js，不是让每个用户各自去抄一遍。 */
+
 let PRICING = {};
 
-function priceRow(model, p) {
-  const tr = document.createElement("tr");
-  const mk = (val, ph, cls) => {
-    const td = document.createElement("td");
-    const inp = document.createElement("input");
-    inp.value = val ?? "";
-    inp.placeholder = ph;
-    if (cls) inp.type = "number", inp.step = "0.1", inp.min = "0";
-    td.appendChild(inp);
-    tr.appendChild(td);
-    return inp;
-  };
-  const im = mk(model, "模型名，如 deepseek-v4-flash");
-  const ii = mk(p.in, "—", 1);
-  const ic = mk(p.cacheIn, "留空=同未命中", 1);
-  const io_ = mk(p.out, "—", 1);
-  // 来源列：这个数字是哪来的、哪天抄的。没有出处的价格等于没有价格
-  const tdSrc = document.createElement("td");
-  tdSrc.className = "mini";
-  tdSrc.style.color = "var(--muted)";
-  const src = priceSource(model);
-  tdSrc.textContent = src ? src.asOf + " · " + src.src : (model ? "你手填的" : "—");
-  tr.appendChild(tdSrc);
-
-  const tdDel = document.createElement("td");
-  tdDel.style.border = "0";
-  const del = document.createElement("button");
-  del.className = "ghost";
-  del.textContent = "×";
-  del.style.padding = "2px 8px";
-  del.onclick = () => { tr.remove(); };
-  tdDel.appendChild(del);
-  tr.appendChild(tdDel);
-  tr._read = () => {
-    const name = im.value.trim();
-    if (!name) return null;
-    return [name, { in: parseFloat(ii.value) || 0, cacheIn: parseFloat(ic.value) || 0, out: parseFloat(io_.value) || 0 }];
-  };
-  return tr;
-}
-
-function paintPricing(pricing, currentModel) {
-  const t = $("priceTable");
-  /* ⚠️ 只在**一条都没配过**的时候才铺预估价。用户手填过的值绝不覆盖——
-   * 他填的是从官网抄的真价，比我这份估算可信得多。 */
-  if (!pricing || !Object.keys(pricing).length) {
-    pricing = JSON.parse(JSON.stringify(PRICING_ESTIMATE));
-  }
-  Array.from(t.querySelectorAll("tr")).slice(1).forEach((r) => r.remove());
-  const entries = Object.entries(pricing || {});
-  // 当前模型没有价格行就自动加一行，省得用户找不到入口
-  if (currentModel && !entries.find(([m]) => m === currentModel)) {
-    entries.unshift([currentModel, {}]);
-  }
-  if (!entries.length) entries.push(["", {}]);
-  entries.forEach(([m, p]) => t.appendChild(priceRow(m, p || {})));
-}
-
-function readPricing() {
-  const out = {};
-  Array.from($("priceTable").querySelectorAll("tr")).slice(1).forEach((r) => {
-    const kv = r._read && r._read();
-    if (kv) out[kv[0]] = kv[1];
-  });
-  return out;
-}
-
+/* 只剩三个数。输入/输出/缓存命中率/思考 token 那四列删了——
+   情报台每条回答下面已经逐轮显示，设置页不该有第二份同样的东西。 */
 async function paintUsage() {
   const t = await getUsageTotal();
-  const inTok = t.inTok || 0;
   $("uCalls").textContent = t.calls || 0;
-  $("uIn").textContent = inTok.toLocaleString();
-  $("uHit").textContent = inTok ? Math.round(((t.hitTok || 0) / inTok) * 100) + "%" : "—";
-  $("uOut").textContent = (t.outTok || 0).toLocaleString();
-  $("uReason").textContent = (t.reasonTok || 0).toLocaleString();
   $("uCost").textContent = t.unpriced
-    ? fmtCost(t.cost) + "（" + t.unpriced + " 次未配价格）"
+    ? fmtCost(t.cost) + "（其中 " + t.unpriced + " 次算不出价格）"
     : fmtCost(t.cost);
   $("uSince").textContent = t.since || "—";
 }
@@ -140,7 +85,13 @@ function paintProviders(pid) {
   sel.value = pid || "";
 }
 
-/** 模型下拉。选项文字里带上价格——选择的那一刻才是价格有用的时刻。 */
+/** 模型下拉。
+ *
+ * ⚠️ 价格**不再塞进选项文字**。上一版是 "名字　入 ¥x / 出 ¥y"，
+ * 而下拉当时和 API Key 挤在两列里，实测被截断成
+ * 「DeepSeek Flash（便宜，推荐起步）　入 ¥」——价格那半截完全看不见。
+ * 现在下拉独占一行、只放名字，价格由 paintModelPrice() 写在下面一行。
+ */
 function paintModels(pid, modelId) {
   const sel = $("modelSel");
   sel.innerHTML = "";
@@ -148,7 +99,7 @@ function paintModels(pid, modelId) {
   if (!p) {
     const o = document.createElement("option");
     o.value = "";
-    o.textContent = "自定义端点 —— 在下面「高级」里填模型名";
+    o.textContent = "自定义端点 —— 在「高级」里填模型名";
     sel.appendChild(o);
     sel.disabled = true;
     return;
@@ -157,11 +108,36 @@ function paintModels(pid, modelId) {
   for (const m of p.models) {
     const o = document.createElement("option");
     o.value = m.id;
-    const free = !m.in && !m.out;
-    o.textContent = m.label + (free ? "　免费" : "　入 ¥" + m.in + " / 出 ¥" + m.out);
+    o.textContent = m.label;
     sel.appendChild(o);
   }
   sel.value = p.models.some((m) => m.id === modelId) ? modelId : p.models[0].id;
+}
+
+/** 当前模型的参考价，一行。替掉了原来那张可编辑的价格表。 */
+function paintModelPrice() {
+  const el = $("modelPrice");
+  const custom = $("modelCustom").value.trim();
+  const id = custom || $("modelSel").value;
+  const p = PRICING_ESTIMATE[id];
+  const src = priceSource(id);
+  if (!p) {
+    el.textContent = id
+      ? "这个模型名不在内置目录里，算不出花费——用量里会记 token，但钱显示为「算不出」。"
+      : "";
+    return;
+  }
+  if (!p.in && !p.out) {
+    el.textContent = "本地模型，不花钱。";
+    return;
+  }
+  const bits = [
+    "参考价：输入 ¥" + p.in,
+    p.cacheIn === null ? "缓存命中价未知" : "缓存命中 ¥" + p.cacheIn,
+    "输出 ¥" + p.out,
+  ];
+  el.textContent = bits.join(" · ") + "　（元/百万 token）" +
+    (src ? "　" + src.asOf + " 抄自官方定价页，会过期" : "");
 }
 
 function paintProviderNote(pid) {
@@ -190,16 +166,34 @@ function esc(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 }
 
+/** 「关闭思考模式」开关。厂商不支持就整行隐藏。 */
+function paintThinkOff(pid, extraBody) {
+  const body = thinkOffBody(pid);
+  const wrap = $("thinkWrap");
+  if (!body) {
+    wrap.hidden = true;
+    $("thinkOff").checked = false;
+    return;
+  }
+  wrap.hidden = false;
+  $("thinkNote").textContent = pid === "deepseek"
+    ? "（DeepSeek V4 默认开启。思考 token 按输出计费，而你看不到内容——本工具的统计和检索问答都不需要它）"
+    : "（思考 token 按输出计费而你看不到内容，本工具多数任务不需要）";
+  // 已存的 extraBody 里包含这个片段就算已开
+  $("thinkOff").checked = (extraBody || "").indexOf("disabled") >= 0;
+}
+
 /** 切厂商：填 Base URL、重画模型列表、换出这家的 key */
-function applyProvider(pid, keepModel) {
+function applyProvider(pid) {
   const p = getProvider(pid);
   if (p) $("baseUrl").value = p.baseUrl;
-  paintModels(pid, keepModel);
+  paintModels(pid, null);
   paintProviderNote(pid);
+  paintThinkOff(pid, $("thinkOff").checked ? "disabled" : "");
   $("apiKey").value = KEYS[pid] || "";
   // 本地 Ollama 不校验 key，但字段不能空
   if (pid === "ollama" && !$("apiKey").value) $("apiKey").value = "ollama";
-  paintPricing(readPricing(), $("modelSel").value);
+  paintModelPrice();
 }
 
 async function load() {
@@ -221,34 +215,44 @@ async function load() {
   $("baseUrl").value = s.baseUrl || "";
   PRICING = s.pricing || {};
 
-  const known = getModel(pid, s.model);
-  paintModels(pid, s.model);
+  /* ⚠️ 退役别名先迁移，再判断"是不是自定义模型"。
+     实测（用户截图）：存的是 deepseek-v4-flash，下拉里没有它，
+     于是被当成自定义模型名、把高级栏自动展开——而它是个 2026-07-24
+     就退役的别名，调用出去必然失败，界面上却看起来一切正常。 */
+  const model = migrateModel(s.model);
+  const migrated = model !== s.model;
+  const known = getModel(pid, model);
+
+  paintModels(pid, model);
   paintProviderNote(pid);
-  // 下拉里没有的模型名 → 它是自定义的，放进高级栏并把高级栏展开
-  if (s.model && !known) {
-    $("modelCustom").value = s.model;
+  paintThinkOff(pid, s.extraBody);
+
+  // 下拉里没有的模型名 → 真的是自定义的，放进高级栏并展开
+  if (model && !known) {
+    $("modelCustom").value = model;
     $("advWrap").open = true;
   }
   $("apiKey").value = KEYS[pid] || "";
-
-  paintPricing(PRICING, s.model);
+  paintModelPrice();
   await paintUsage();
+
+  if (migrated) {
+    setStatus("模型名 " + s.model + " 已退役，自动换成 " + model + "，点保存生效", "bad");
+  }
 }
 
 $("provider").onchange = (e) => {
-  applyProvider(e.target.value, null);
+  applyProvider(e.target.value);
   $("modelCustom").value = "";
   setStatus("已填入，记得保存");
 };
 
 $("modelSel").onchange = () => {
-  paintPricing(readPricing(), $("modelSel").value);
   $("modelCustom").value = "";
+  paintModelPrice();
 };
 
-$("addModel").onclick = () => {
-  $("priceTable").appendChild(priceRow("", {}));
-};
+$("modelCustom").addEventListener("input", paintModelPrice);
 
 $("save").onclick = async () => {
   const pid = $("provider").value;
@@ -256,6 +260,11 @@ $("save").onclick = async () => {
   const model = $("modelCustom").value.trim() || $("modelSel").value;
   const key = $("apiKey").value.trim();
   if (pid) KEYS[pid] = key;
+
+  /* extraBody 现在由「关闭思考模式」那个开关生成，参数名按厂商内置。
+     不勾就是空字符串——不发任何厂商特有参数，最安全的默认。 */
+  const think = thinkOffBody(pid);
+  const extraBody = ($("thinkOff").checked && think) ? JSON.stringify(think) : "";
 
   await saveSettings({
     provider: pid,
@@ -266,8 +275,9 @@ $("save").onclick = async () => {
     model,
     temperature: parseFloat($("temperature").value) || 0.3,
     maxTokens: parseInt($("maxTokens").value, 10) || 2000,
-    extraBody: $("extraBody").value.trim(),
-    pricing: readPricing(),
+    extraBody,
+    // 价格表的编辑界面删了，但存量值原样带回去——老用户手填过的不能丢
+    pricing: PRICING,
   });
   const n = Object.values(KEYS).filter((v) => v && v.trim()).length;
   setStatus("已保存" + (n > 1 ? "（已配 " + n + " 家，切厂商不用重填 key）" : ""), "ok");
@@ -411,6 +421,9 @@ async function focusFromHash() {
   const el = document.querySelector(h);
   if (!el) return;
   el.scrollIntoView({ block: "start" });
+  // 使用说明默认收起（它在页尾），从 popup 的入口跳进来时得自动展开，
+  // 否则用户点了「使用说明」却只看到一行标题
+  if (h === "#help") { $("helpBody").open = true; return; }
   if (h !== "#sync") return;
   await loadSync(); // 等 URL/key/邮箱填回去，才知道该聚焦哪一个
   const st = await getSyncSettings();
