@@ -22,6 +22,9 @@
     font-family: var(--sans); font-size: 12px; color: var(--muted);
     padding: 2px 7px; border: 1px solid var(--rule); border-radius: 100px;
   }
+  /* #cost 在还没花钱时是空的，但边框照画 —— 界面上就多出一个说不清的空胶囊。
+     :empty 让它自己消失，不用在 JS 里到处 toggle hidden。 */
+  header .n:empty { display: none; }
   header .sp { flex: 1; }
   .ico {
     border: 1px solid var(--rule); background: var(--card); color: var(--ink2);
@@ -29,6 +32,7 @@
     display: grid; place-items: center; padding: 0;
   }
   .ico:hover { border-color: var(--acc); color: var(--acc); }
+  .ico svg { display: block; }
   #scope {
     font-family: var(--sans); font-size: 11.5px; padding: 3px 6px;
     border: 1px solid var(--rule); border-radius: 5px;
@@ -46,40 +50,97 @@
   .tab-btn:hover { color: var(--ink2); }
   .tab-btn.active { color: var(--acc); border-bottom-color: var(--acc); }
 
-  #log { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
-  #funnelTab { flex: 1; overflow-y: auto; }
+  /* ⚠️ min-height: 0 不能省。flex 子项的默认 min-height 是 auto，
+     带 overflow-y:auto 的项不会收缩到内容高度以下——于是 #log 把 body 顶长，
+     整个文档多出一条外层滚动条，变成"两条滚动条"。 */
+  #log {
+    flex: 1; min-height: 0; overflow-y: auto; padding: 12px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  #funnelTab { flex: 1; min-height: 0; overflow-y: auto; }
 
   .msg { max-width: 100%; }
   .msg.u { align-self: flex-end; max-width: 88%; }
   .bubble {
-    padding: 9px 12px; border-radius: 9px; white-space: pre-wrap; word-break: break-word;
+    padding: 10px 12px; border-radius: var(--r); white-space: pre-wrap; word-break: break-word;
   }
-  .u .bubble { background: var(--acc); color: #fff; border-bottom-right-radius: 3px; }
+  /* ⚠️ 不要用 --acc（近黑）做用户气泡底色。这跟弹窗里薪资 chip 那次是同一类
+     错误：黑色是「整屏唯一主动作」（发送按钮）的专属，一旦拿它去铺一大块
+     气泡，最重的视觉落在了**你自己刚打的字**上——那是这一屏最没有信息量的
+     内容，而真正要读的回答反而显得次要。
+     改成淡底 + 正文色，靠右对齐和圆角缺口已经足够说明"这条是我说的"。 */
+  .u .bubble {
+    background: var(--acc-soft);
+    color: var(--ink);
+    border: 1px solid var(--rule);
+    border-bottom-right-radius: 3px;
+  }
   .a .bubble { background: var(--card); border: 1px solid var(--rule); border-bottom-left-radius: 3px; }
   .meta {
     font-family: var(--sans); font-size: 11.5px; color: var(--muted);
     margin-bottom: 4px; display: flex; gap: 7px; flex-wrap: wrap; align-items: center;
   }
   .tag {
-    padding: 1px 5px; border-radius: 2px; background: var(--sunk); color: var(--ink2);
+    padding: 2px 6px; border-radius: var(--r-sm); background: var(--sunk); color: var(--ink2);
     font-family: var(--sans); font-size: 11.5px;
   }
-  .tag.rule { background: var(--acc-soft); color: var(--acc); }
-  .tag.model { background: var(--warn-soft); color: var(--warn); }
+  /* 这两个标签都是中性元信息（走了规则还是走了模型、哪个模型），
+     不是警告。原来 .model 用琥珀色（--warn），而琥珀在这套配色里
+     专门表示"需要你处理"——拿它标模型名是误报。
+     两个都用中性底；要区分的话靠字重，不靠颜色。 */
+  .tag.rule { background: var(--sunk); color: var(--ink2); font-weight: 600; }
+  .tag.model { background: var(--sunk); color: var(--muted); }
 
-  .bubble table { border-collapse: collapse; width: 100%; margin: 6px 0; font-size: 12.5px; }
-  .bubble th, .bubble td { border: 1px solid var(--rule); padding: 4px 7px; text-align: left; }
-  .bubble th { background: var(--sunk); }
-  .bubble code { font-family: var(--mono); background: var(--sunk); padding: 1px 4px; border-radius: 3px; font-size: .9em; }
+  .bubble table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 12.5px; }
+  .bubble th, .bubble td { border: 1px solid var(--rule); padding: 5px 8px; text-align: left; }
+  .bubble th { background: var(--sunk); font-weight: 600; }
+  /* 最后一列几乎总是数字（覆盖率、条数、金额）。width:100% 会把两列平分，
+     数字列被拉到半个表格宽、和标题贴在一起，读的时候要横向找。
+     收窄 + 右对齐 + 等宽表格数字，纵向就能直接比大小。 */
+  .bubble th:last-child,
+  .bubble td:last-child {
+    width: 1%;
+    white-space: nowrap;
+    text-align: right;
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+  }
+  /* 只有两列时上面那条才成立；三列以上不强制，交给内容 */
+  .bubble table:has(th:nth-child(3)) th:last-child,
+  .bubble table:has(th:nth-child(3)) td:last-child { width: auto; }
+  .bubble code { font-family: var(--mono); background: var(--sunk); padding: 1px 4px; border-radius: var(--r-sm); font-size: .9em; }
   .confirm {
     background: var(--warn-soft); color: var(--warn); border: 1px dashed var(--warn);
-    padding: 1px 5px; border-radius: 3px; font-weight: 600;
+    padding: 1px 5px; border-radius: var(--r-sm); font-weight: 600;
   }
-  .cite { font-family: var(--mono); color: var(--acc); font-weight: 600; }
+  /* 引用标记是这个工具的核心承诺——"回答只依据你采集的 JD"靠它才能核验。
+     配色换成近乎无彩之后 --acc 是近黑，加粗也和正文分不开了。
+     做成脚注样子：等宽小字 + 沉底 + 发丝边，不占用任何语义色。
+     相邻两个之间必须留缝，否则 [3][7] 会糊成一坨。 */
+  .cite {
+    font: 600 11px/1 var(--mono);
+    color: var(--ink2);
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-sm);
+    padding: 1px 4px;
+    white-space: nowrap;
+  }
+  .cite + .cite { margin-left: 3px; }
 
-  .sources { margin-top: 7px; padding-top: 6px; border-top: 1px dashed var(--rule); font-size: 11.5px; }
-  .sources a { color: var(--acc); text-decoration: none; }
-  .sources a:hover { text-decoration: underline; }
+  /* 来源是一个**列表**，原来被排成一句话（"来源：[3] … · [7] …"），
+     换行位置随宽度乱跳，读的人要自己在里面找分隔符。改成每条一行。 */
+  .sources {
+    margin-top: 8px; padding-top: 7px;
+    border-top: 1px dashed var(--rule);
+    font-size: 11.5px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .sources .s { display: block; margin-top: 1px; }
+  /* ⚠️ 必须带下划线。原来 --acc 是青色，靠颜色就能认出是链接；
+     配色换成近乎无彩之后 --acc 是近黑，去掉下划线等于把链接伪装成正文。 */
+  .sources a { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
+  .sources a:hover { text-decoration-thickness: 2px; }
   .sources .s { color: var(--muted); font-family: var(--mono); }
 
   .usage {
@@ -97,13 +158,13 @@
   /* 槽位追问卡片 */
   .slot {
     background: var(--card); border: 1px solid var(--warn); border-left-width: 3px;
-    border-radius: 2px; padding: 11px;
+    border-radius: var(--r); padding: 11px;
   }
   .slot h4 { margin: 0 0 5px; font-size: 12.5px; color: var(--warn); }
   .slot p { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
   .slot textarea {
     width: 100%; min-height: 90px; resize: vertical; padding: 7px;
-    border: 1px solid var(--rule-strong); border-radius: 2px; background: var(--sunk);
+    border: 1px solid var(--rule-strong); border-radius: var(--r); background: var(--sunk);
     color: var(--ink); font: 12px/1.5 inherit;
   }
   .slot .row { display: flex; gap: 6px; margin-top: 7px; }
@@ -112,7 +173,7 @@
   /* 快捷问题 */
   #quick { flex: none; padding: 0 12px 8px; display: flex; gap: 6px; flex-wrap: wrap; }
   #quick button {
-    font: 11.5px/1.3 var(--sans); padding: 4px 8px; border-radius: 2px;
+    font: 11.5px/1.3 var(--sans); padding: 5px 9px; border-radius: var(--r-sm);
     border: 1px solid var(--rule-strong); background: transparent; color: var(--ink2); cursor: pointer;
   }
   #quick button:hover { border-color: var(--acc); color: var(--acc); }
@@ -121,7 +182,7 @@
   .inrow { display: flex; gap: 7px; align-items: flex-end; }
   #q {
     flex: 1; min-height: 38px; max-height: 130px; resize: none; padding: 8px 10px;
-    border: 1px solid var(--rule-strong); border-radius: 2px; background: var(--sunk);
+    border: 1px solid var(--rule-strong); border-radius: var(--r); background: var(--sunk);
     color: var(--ink); font: 13px/1.5 var(--sans);
   }
   #q:focus { outline: none; border-color: var(--acc); }
@@ -151,8 +212,25 @@
       <option value="进面">只看进面</option>
       <option value="复面">只看复面</option>
     </select>
-    <button class="ico" id="newchat" title="新会话">⟳</button>
-    <button class="ico" id="settings" title="设置">设置</button>
+    <!-- 图标：Radix Icons（MIT，github.com/radix-ui/icons）里的 plus 和
+         mixer-horizontal，路径原样内联。
+         为什么选 Radix 而不是 Lucide/Feather：Radix 是在 **15×15 网格**上画的，
+         这里显示 14px，笔画正好落在整像素上；Lucide/Feather 是 24×24 网格，
+         缩到 14px 笔画会落在半像素上而发虚。
+         为什么内联而不是引库：MV3 的 CSP 不允许远程脚本，而这里只要两个图标，
+         为它加一个字体或一个 npm 依赖不值得。
+         ⚠️ 上一轮我把 ⚙ 换成「设置」两个字，但 .ico 是 26×26 只够放一个字符，
+         按钮被撑破——图标位置放文字本身就是错的。 -->
+    <button class="ico" id="newchat" title="新会话" aria-label="新会话">
+      <svg viewBox="0 0 15 15" width="14" height="14" fill="none" aria-hidden="true" focusable="false">
+        <path d="M7.5 2.25C7.77614 2.25 8 2.47386 8 2.75V7H12.25C12.5261 7 12.75 7.22386 12.75 7.5C12.75 7.77614 12.5261 8 12.25 8H8V12.25C8 12.5261 7.77614 12.75 7.5 12.75C7.22386 12.75 7 12.5261 7 12.25V8H2.75C2.47386 8 2.25 7.77614 2.25 7.5C2.25 7.22386 2.47386 7 2.75 7H7V2.75C7 2.47386 7.22386 2.25 7.5 2.25Z" fill="currentColor"/>
+      </svg>
+    </button>
+    <button class="ico" id="settings" title="设置" aria-label="设置">
+      <svg viewBox="0 0 15 15" width="14" height="14" fill="none" aria-hidden="true" focusable="false">
+        <path d="M9.5 8C10.7108 8 11.72 8.8609 11.9502 10.0039C11.9666 10.0023 11.9831 10 12 10H13.5C13.7761 10 14 10.2239 14 10.5C14 10.7761 13.7761 11 13.5 11H12C11.9831 11 11.9667 10.9968 11.9502 10.9951C11.7204 12.1386 10.7112 13 9.5 13C8.28878 13 7.27856 12.1387 7.04883 10.9951C7.03268 10.9967 7.01656 11 7 11H1.5C1.22386 11 1 10.7761 1 10.5C1 10.2239 1.22386 10 1.5 10H7C7.01653 10 7.03271 10.0023 7.04883 10.0039C7.27892 8.8608 8.28911 8 9.5 8ZM9.5 9C8.67157 9 8 9.67157 8 10.5C8 11.3284 8.67157 12 9.5 12C10.3284 12 11 11.3284 11 10.5C11 9.67157 10.3284 9 9.5 9ZM5.5 2C6.71082 2 7.72003 2.8609 7.9502 4.00391C7.96662 4.00228 7.98314 4 8 4H13.5L13.6006 4.00977C13.8286 4.05629 14 4.25829 14 4.5C14 4.74171 13.8286 4.94371 13.6006 4.99023L13.5 5H8C7.98311 5 7.96665 4.99675 7.9502 4.99512C7.72039 6.13859 6.71115 7 5.5 7C4.28878 7 3.27856 6.13869 3.04883 4.99512C3.03268 4.99669 3.01656 5 3 5H1.5C1.22386 5 1 4.77614 1 4.5C1 4.22386 1.22386 4 1.5 4H3C3.01653 4 3.03271 4.00234 3.04883 4.00391C3.27892 2.8608 4.28911 2 5.5 2ZM5.5 3C4.67157 3 4 3.67157 4 4.5C4 5.32843 4.67157 6 5.5 6C6.32843 6 7 5.32843 7 4.5C7 3.67157 6.32843 3 5.5 3Z" fill="currentColor"/>
+      </svg>
+    </button>
   </header>
 
   <div class="tabs">
