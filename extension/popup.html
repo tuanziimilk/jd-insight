@@ -20,15 +20,16 @@
 
   /* 计数。C 案的做法：沉底方框 + 大号等宽数字 + 等宽小标。
      数字是这一屏唯一的"大字"，所以它不需要颜色也能当锚点。 */
+  /* 计数。刻意不做成方框：顶部本来已经有「主按钮 / 同步按钮 / 三个导出」
+     三条横向色块，再加一个带填色和边框的方框，一屏最上面就是四层堆叠，
+     压迫感全在这儿。数字 30px 本身就够当锚点，不需要框住它。 */
   .count {
     display: flex;
     align-items: baseline;
     gap: 8px;
-    padding: 11px 13px;
-    background: var(--sunk);
-    border: 1px solid var(--rule);
-    border-radius: var(--r);
-    margin-bottom: 9px;
+    padding: 4px 0 12px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 12px;
   }
   .count b {
     font: 600 30px/1 var(--mono);
@@ -44,9 +45,11 @@
      ⚠️ 最后这条是有来由的：清空不可逆，而它原来和「导出 JSON」
      并排、同样大小。这跟列表行里「删除」不能长得像「切换意向」
      是同一个道理，那处已经修过一次。 */
-  .row { display: flex; gap: 7px; margin-bottom: 8px; }
+  /* 间距统一到 4px 刻度上。原来是 7/8/9/11/-3 混着来，
+     竖向节奏看着"差一点"却说不出哪里差。 */
+  .row { display: flex; gap: 8px; margin-bottom: 8px; }
   .row button { flex: 1; }
-  .row.mini { gap: 6px; margin-bottom: 11px; }
+  .row.mini { gap: 8px; margin-bottom: 12px; }
   .row.mini button {
     padding: 7px 5px;
     font-size: 11.5px;
@@ -60,7 +63,7 @@
      配色是无彩的，所以「需要注意」只能靠 --warn 这一点颜色，
      不能再靠加粗或图标堆——那会变成噪声。 */
   .syncline {
-    margin: -3px 0 10px;
+    margin: 0 0 12px;
     font: 12px/1.55 var(--sans);
     color: var(--muted);
     display: flex;
@@ -73,29 +76,75 @@
   .syncline a { font: inherit; color: inherit; }
 
   .list {
-    max-height: 200px;
+    /* 240 ≈ 三行整。原来 200px 正好把第三行切在字中间，看着像渲染坏了。
+       底部那段路径说明收进 details 之后腾出的高度，正好补给这里。 */
+    max-height: 240px;
     overflow-y: auto;
     border: 1px solid var(--rule);
     border-radius: var(--r);
     background: var(--card);
   }
-  .item { padding: 10px 12px; font-size: 12px; }
+  .item { padding: 12px; font-size: 12px; }
   .item + .item { border-top: 1px solid var(--rule); }
   .item .t { font-weight: 600; color: var(--ink); font-size: 12.5px; line-height: 1.4; }
   .item .m { color: var(--ink2); font: 12px/1.5 var(--sans); }
   .item .warn { color: var(--warn); }
-  .tags { display: flex; gap: 6px; margin-top: 6px; align-items: center; }
+  .tags { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
+
+  /* ── chip 三类，权重刻意分开 ──────────────────────────────
+     这一行里有三种东西，之前它们长得一样或者反了：
+       1. 值（薪资、挂因）—— 要被**读**，不该有填色
+       2. 开关（意向、状态）—— 要被**点**，选中时需要一个明确的"开着"
+       3. 不可逆操作（删除）—— 平时不该抢注意力，动手时才需要警告
+     之前 1 和 2 共用 .on（黑底白字），于是纯数据看起来像开着的开关，
+     而黑底本该是整屏唯一主动作的专属。 */
   .chip {
     flex: 0 0 auto; padding: 4px 8px; font: 500 11.5px/1 var(--sans);
     border: 1px solid var(--rule); border-radius: var(--r-sm);
     background: var(--card); color: var(--ink2); cursor: pointer;
   }
-  /* 选中态用反色，不用彩色底 —— 无彩配色里这是最强的"开着"信号 */
-  .chip.on { background: var(--acc); border-color: var(--acc); color: var(--acc-ink); }
-  .chip:hover { border-color: var(--acc); }
-  /* 删除推到最右，是这一行唯一带颜色的东西。
-     它不可逆，不能和「切换意向」这种随便点的 chip 长得一样。 */
-  .chip.del { margin-left: auto; color: var(--stop); border-color: var(--stop-soft); }
+  .chip:hover { border-color: var(--acc); color: var(--ink); }
+
+  /* 2. 开关的选中态。用淡底 + 实边 + 深字，不用黑底：
+     黑底留给「打开情报台」那一个主动作，一屏出现四五块就没有主次了。 */
+  .chip.on {
+    background: var(--acc-soft);
+    border-color: var(--rule-strong);
+    color: var(--ink);
+  }
+
+  /* 1. 值。等宽 + 表格数字，无填色无边框——它靠字形和字重立住，
+     这正是 C 案的做法：等宽字本身就是"这是数据"的标记。
+     悬停才浮出边框，提示它可以点开改。 */
+  .chip.sal {
+    font: 600 12px/1 var(--mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+    background: transparent;
+    border-color: transparent;
+    padding-left: 2px;
+  }
+  .chip.sal:hover { border-color: var(--rule-strong); background: var(--card); }
+  /* 待补是这一行唯一需要你动手的地方，所以它反而该有颜色和虚线边 */
+  .chip.sal.pend {
+    font: 500 11.5px/1 var(--sans);
+    color: var(--warn);
+    border: 1px dashed var(--warn);
+    padding-left: 8px;
+  }
+  .chip.sal.pend:hover { background: var(--warn-soft); }
+
+  /* 挂因也是标注不是开关 */
+  .chip.note { background: var(--sunk); border-color: transparent; color: var(--ink2); }
+
+  /* 3. 删除。默认中性，只在悬停时变红。
+     ⚠️ 原来它常态就是红字红边——三行列表下来是一条红柱，比内容还吸睛，
+     而一直红的红色等于没有红色。危险色留给"你正要动手"的那一刻。 */
+  .chip.del {
+    margin-left: auto;
+    color: var(--muted);
+    border-color: transparent;
+  }
   .chip.del:hover { background: var(--stop); color: #fff; border-color: var(--stop); }
   .salinput {
     flex: 0 0 auto; width: 112px; padding: 3px 6px; font: 12px/1.5 var(--mono);
@@ -114,8 +163,30 @@
   }
   .tip code { font: 12px var(--mono); border: 0; padding: 0 2px; }
 
+  /* 折叠的参考信息。summary 要长得像可点的东西（不然没人会去点），
+     但不能长得像按钮——它是导航不是操作，所以用下划线而不是边框。 */
+  .ref { margin-top: 4px; }
+  .ref summary {
+    font: 12px/1.6 var(--sans);
+    color: var(--muted);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    list-style: none;
+  }
+  .ref summary::-webkit-details-marker { display: none; }
+  .ref summary::before { content: "▸ "; text-decoration: none; }
+  .ref[open] summary::before { content: "▾ "; }
+  .ref summary:hover { color: var(--ink2); }
+  .ref p {
+    margin: 8px 0 0;
+    font: 12px/1.7 var(--sans);
+    color: var(--muted);
+  }
+  .ref code { font: 12px var(--mono); border: 0; padding: 0 2px; }
+
   /* 清空：整行最右、纯文字、只有它带红。刻意离所有按钮很远。 */
-  .destruct { display: flex; justify-content: flex-end; margin-top: 10px; }
+  .destruct { display: flex; justify-content: flex-end; margin-top: 12px; }
   #clear {
     padding: 4px 2px;
     font-size: 11.5px;
@@ -156,11 +227,17 @@
   <p class="tip">
     点条目下的小标签可切换<b>意向</b>与<b>投递状态</b>，情报台里能按它筛选。
   </p>
-  <p class="tip" style="border:0;padding-top:0;margin-top:6px">
-    导出的 <code>jd_raw.txt</code> 放到<br>
-    <code>career-knowledgebase/05-资源库/JD原始数据/</code><br>
-    然后运行 <code>99-脚本/analyze_jd.py</code> 出汇总报告。
-  </p>
+
+  <!-- 这段路径说明是"看一次就记住"的参考，原来常驻底部、占掉约四分之一
+       弹窗高度。收进 details：需要的时候展开，不需要的时候不占地方。 -->
+  <details class="ref">
+    <summary>导出后怎么跑分析脚本</summary>
+    <p>
+      把 <code>jd_raw.txt</code> 放到<br>
+      <code>career-knowledgebase/05-资源库/JD原始数据/</code><br>
+      然后运行 <code>99-脚本/analyze_jd.py</code> 出汇总报告。
+    </p>
+  </details>
 
   <div class="destruct">
     <button id="clear">清空全部记录</button>

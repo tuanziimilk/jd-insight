@@ -225,7 +225,7 @@ function render() {
       };
       if (r.failReason) {
         const bf = document.createElement("button");
-        bf.className = "chip on";
+        bf.className = "chip note"; // 挂因是标注，不是开关，同理不用 .on
         bf.textContent = "↯ " + r.failReason;
         bf.title = "挂掉原因，点击修改";
         bf.onclick = () => askFailReason(r.key);
@@ -235,7 +235,10 @@ function render() {
       // 采集时不打断，回头在这里一次性把待补的几条填完。
       const bsal = document.createElement("button");
       const hasSal = !!(r.salary && r.salary.trim());
-      bsal.className = "chip" + (hasSal ? " on" : "");
+      // ⚠️ 刻意不复用 .on。.on 表示"开关开着"，而薪资是**值**不是状态。
+      // 之前两者共用 .on（黑底白字），结果薪资看起来像个开着的开关，
+      // 而黑底在这套配色里是留给唯一主动作的——一行两三块黑，列表成了黑斑阵。
+      bsal.className = "chip sal" + (hasSal ? "" : " pend");
       bsal.textContent = hasSal
         ? r.salaryParsed
           ? formatSalary(r.salaryParsed)
