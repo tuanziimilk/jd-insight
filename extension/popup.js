@@ -476,6 +476,8 @@ $("sync").addEventListener("click", async () => {
   if (res.deleted) parts.push("推送删除 " + res.deleted);
   if (res.pulledRemoved) parts.push("本地清掉 " + res.pulledRemoved + " 条（别处已删）");
   if (res.pulledRevived) parts.push(res.pulledRevived + " 条已恢复");
+  // 简历是"悄悄变好了"的那类改动，不说出来用户不会知道诊断已经能用了
+  if (res.resumePulled) parts.push("已拉取云端简历");
   const left = await getTombstones();
   if (left.length) parts.push(left.length + " 条删除未生效，下次重试");
   el.textContent = parts.join(" · ");

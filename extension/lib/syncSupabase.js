@@ -342,11 +342,55 @@ export async function syncAll(jobs, onProgress) {
     onProgress?.(synced, jobs.length);
   }
 
-  // 记下同步时刻。这是"还有多少没推上去"唯一可信的基准——
-  // 没有它，界面只能说"点一下同步"，说不出到底该不该点。
+  // 顺手把云端简历拉下来。
+  // ⚠️ 这一步是为了修一个静默失效：扩展的「简历诊断」读的是本机
+  // chrome.storage.local.profile.resume，只存在这台电脑上。换台电脑、
+  // 或者清了浏览器数据，诊断就会重新弹"先要一样东西：你的简历"，
+  // 而用户明明已经在工作台里传过了。简历的权威副本在云端
+  // （career_profile.resume_text，工作台 06 那一页负责写），这里只读不写——
+  // 单向拉取，避免两边互相覆盖。
+  const resume = await pullResume(s);
+
   await chrome.storage.local.set({ lastSyncAt: new Date().toISOString() });
 
-  return { ok: true, synced, deleted, pulledRemoved: pulled.removed, pulledRevived: pulled.revived };
+  return {
+    ok: true,
+    synced,
+    deleted,
+    pulledRemoved: pulled.removed,
+    pulledRevived: pulled.revived,
+    resumePulled: resume.pulled,
+  };
+}
+
+/**
+ * 把云端简历拉到本机（单向）。
+ *
+ * 只在**云端有、且和本机不一样**时才写本机。理由：
+ *   - 云端没有就别动本机的——用户可能刚在扩展里粘过一份还没往上传
+ *   - 一样就别写，省一次 storage 写入，也避免 storage 变更事件乱触发
+ *
+ * 失败不算同步失败：简历拉不下来只是诊断功能少了输入，
+ * 而 JD 已经推上去了，没必要因此把整次同步判成失败。
+ */
+async function pullResume(s) {
+  try {
+    const resp = await authedFetch(
+      s,
+      restUrl(s.supabaseUrl, "/career_profile?select=resume_text&limit=1")
+    );
+    if (!resp.ok) return { pulled: false };
+    const rows = await resp.json().catch(() => []);
+    const text = rows && rows[0] && rows[0].resume_text;
+    if (!text || typeof text !== "string") return { pulled: false };
+    const { profile = {} } = await chrome.storage.local.get({ profile: {} });
+    if (profile.resume === text) return { pulled: false };
+    await chrome.storage.local.set({ profile: { ...profile, resume: text } });
+    return { pulled: true, chars: text.length };
+  } catch (e) {
+    console.warn("[jd-insight] 云端简历拉取失败（不影响 JD 同步）：", e && e.message);
+    return { pulled: false };
+  }
 }
 
 /** 上次同步成功的时刻（ISO，没同步过就是 ""）。 */
