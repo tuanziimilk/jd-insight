@@ -81,7 +81,9 @@ function addSys(text) {
 function addAssistant(intent, by) {
   const d = document.createElement("div");
   d.className = "msg a";
-  const tagCls = by && by.startsWith("rule") ? "rule" : "model";
+  // 红线优先于 rule/model 的区分：这一轮被拒了，比"谁判的"更需要被看见
+  const tagCls = intent.id === "GUARD" ? "guard"
+    : by && by.startsWith("rule") ? "rule" : "model";
   d.innerHTML =
     '<div class="meta"><span class="tag ' + tagCls + '">' + esc(intent.label) + "</span>" +
     '<span>判定：' + esc(by || "—") + "</span></div>" +
@@ -269,6 +271,63 @@ function answerStats(question, kws) {
   return lines.join("\n");
 }
 
+/* 红线拒答。确定性，不进模型。
+ *
+ * 为什么拒答也不交给模型：一旦把"帮我编一条经历"送进生成路径，
+ * 拒不拒就取决于那一轮模型的心情——而这是个求职工具，
+ * 编出来的经历会让人在面试里被当场穿。这条不能是概率性的。
+ *
+ * 拒答必须给出**能做的替代**。只说"不行"会把人推去别的工具真的编一条，
+ * 那比在这里给他一条可迁移的真实经验要糟。
+ */
+function answerGuard(by) {
+  if (by === "rule:guard:fact") {
+    return (
+      "**这条我不做。**
+
+" +
+      "你要改的是职位名、公司、学历或起止时间这类**事实字段**。" +
+      "这不是措辞问题——简历上的这几项是会被背景调查和面试交叉核对的，" +
+      "改了就是事实不符。
+
+" +
+      "能做的替代：
+
+" +
+      "- 职位名和实际职责不符，可以在**职责描述**里体现你真实承担的范围" +
+      "（「实际负责 X、Y 两条线」），职位名保持原样
+" +
+      "- 想突出级别，用**带得出结果的事实**（团队规模、决策范围、影响面），" +
+      "而不是换一个头衔
+
+" +
+      "想改措辞的话，把那句话发给我，我按「经历改写」来处理。"
+    );
+  }
+  return (
+    "**这条我不做。**
+
+" +
+    "你说了自己没做过这件事，然后要我写一条相关经历。那是编经历。" +
+    "这个工具是用来投递的，编出来的东西会在面试追问里被当场穿——" +
+    "而且被穿的代价远大于少写一条。
+
+" +
+    "能做的替代，按有用程度排：
+
+" +
+    "1. **写可迁移的真实经验。** 你做过的事里大概率有同类内核" +
+    "（同样的用户获取逻辑、同样的从零搭流程）。把真实那件事写出来，" +
+    "用目标 JD 的用词描述它——这是「经历改写」能帮你做的，且不涉及编造。
+" +
+    "2. **把它当缺口，而不是当要填的空。** 问我「我该补什么能力」，" +
+    "它会告诉你这项在你采集的 JD 里出现的频次，值不值得真的去补。
+" +
+    "3. **面试里如实说没做过 + 说你的判断。** 「这块我没实操过，" +
+    "但我理解它要解决的是 X，我会先从 Y 入手」——这个答案比一条假经历安全得多。"
+  );
+}
+
 /* 能力缺口：全部确定性计算，本轮**不调模型**。
  *
  * 为什么这条要写死成"不过模型"而不是靠提示词约束：
@@ -337,7 +396,10 @@ async function ask(question, opts = {}) {
       b.classList.remove("dots");
       let text;
       let memo;
-      if (intent.id === "GAP") {
+      if (intent.id === "GUARD") {
+        text = answerGuard(by);
+        memo = "[已拒答：红线]";
+      } else if (intent.id === "GAP") {
         text = answerGap();
         memo = "[已给出能力缺口表]";
       } else {

@@ -12,6 +12,16 @@
  */
 
 export const INTENTS = {
+  GUARD: {
+    id: "GUARD",
+    label: "红线",
+    desc: "要求编造没做过的经历、或改掉职位名/公司/学历/时间这类事实字段",
+    slots: [],
+    // ⭐ 确定性拒答，**不进模型**。理由见 ruleClassify 里 GUARD 那一段：
+    // 红线不能指望模型自觉，它必须在模型之前就被拦住。
+    needsRetrieval: false,
+    deterministic: true,
+  },
   STATS: {
     id: "STATS",
     label: "全库统计",
@@ -93,8 +103,51 @@ const STATS_SUMMARY_PAT = [/(统计|汇总|一共|总共)/];
  * DIAGNOSE 只留"拿简历跟 JD 比、要一段叙述"的问法（匹配度/够不够/我能投）。 */
 const GAP_PAT = [/(缺什么|缺口|短板|补什么|该补|要补|欠缺|学什么|该学|学习(路|方向|重点)|能力(要求|画像|排行)|高频|最该)/];
 const DIAGNOSE_PAT = [/(诊断|差距|够不够|匹配度|我能投|适合我|对比.*简历|简历.*对比|对标)/];
-const REWRITE_PAT = [/(改写|润色|重写|帮我改|怎么写|措辞|优化.*(经历|描述|简历))/];
+/* 「改成 / 换成」放在这里是安全的：GUARD 的事实字段规则在它之前判，
+   所以「把职位名改成 X」已经被拦下，落到这里的只剩措辞层面的改写。
+   加它是因为 golden D1「把『提升了流量』改成有数字的版本」原本一条规则
+   都不命中、白花一次分类调用。 */
+const REWRITE_PAT = [/(改写|润色|重写|帮我改|怎么写|措辞|改成|换成|优化.*(经历|描述|简历))/];
 const PREP_PAT = [/(面试|会问|准备什么|押题|反问)/];
+
+/* ══════════════ 红线 ══════════════
+ *
+ * ⚠️ 这一段修的是一个**真的安全洞**，不是加功能。
+ *
+ * 实测：「我没做过 Discord 运营，帮我写一条」→ 命中 rule:kw（因为 discord
+ * 在关键词表里）→ 判成 ASK_JD → 走普通问答路径。而"绝对不许编造"这条
+ * 硬规则**只写在 REWRITE 分支的提示词里**。也就是说：红线的防护装在了
+ * 一条这个问题永远不会经过的路上。
+ * eval/golden_questions.md 的 D3 早就把它列成红线了
+ * （"求职工具编经历会让用户在面试里被穿"），但那只是文档里的期望，
+ * 代码里没有任何东西执行它。现在执行它。
+ *
+ * ⚠️ 刻意要求**两个信号同时命中**，而不是"宁可误报"：
+ *   裸词「没做过」会出现在完全正当的问题里 ——
+ *   「这些 JD 里有哪些是我没做过的」那是 GAP，是这个产品的主功能。
+ *   只按一个信号拦，会把主功能拦掉。
+ *   所以必须 (编造线索) AND (写作请求) 才算红线。
+ *
+ * 改事实字段那一类是单信号，因为「把职位名改成 X」没有正当解读。
+ * 但要和 D1 分开：「把『提升了流量』改成有数字的版本」是正当的 REWRITE，
+ * 它的宾语是一句话，不是身份字段。所以这里只匹配**身份字段**做宾语的情况。 */
+
+/** 编造线索：声称自己没做过 / 要求虚构 */
+const FAB_CUE = /(没做过|没有做过|没干过|没接触过|不会做|零经验|假装|虚构|造假|编造|瞎编|假经历|假数据)/;
+/** 写作请求：要求把内容写进简历 */
+const WRITE_REQ = /(帮我写|帮我编|帮我加|写一[条个段]|加一[条个]|编一[条个]|生成一[条个段]|写上去|写进去|包装|美化)/;
+/** 事实身份字段。改这些没有正当解读——不是措辞问题，是事实不符 */
+const FACT_FIELD_WORDS =
+  "职位名|职称|头衔|title|公司名|学历|毕业时间|毕业院校|入职时间|离职时间|在职时间|工作年限";
+const EDIT_VERBS = "改|换|写成|填成|说成";
+/* 用 RegExp 构造器而不是正则字面量：这一段要拼「字段…动词」和「动词…字段」
+   两个方向，字面量写出来会长到必须折行——而**正则字面量里不能有真换行**。
+   我上一版就是用脚本生成时把 \n 写成了真换行，字符类变成了 [^。；<换行>]。
+   凑巧语义一样、node --check 也过了，但那是运气。构造器天然没有这个坑。 */
+const FACT_FIELD = new RegExp(
+  "((" + FACT_FIELD_WORDS + ")[^。；\\n]{0,8}(" + EDIT_VERBS + ")" +
+  "|(" + EDIT_VERBS + ")[^。；\\n]{0,8}(" + FACT_FIELD_WORDS + "))"
+);
 
 /** 从"有几条要求 Discord"里抠出关键词 */
 export function extractKeywords(text) {
@@ -123,6 +176,15 @@ export function extractKeywords(text) {
 export function ruleClassify(text) {
   const t = (text || "").trim();
   if (!t) return { intent: INTENTS.SMALLTALK, confidence: 1, by: "empty" };
+
+  /* 红线优先于一切。放在最前面不是风格，是必须——
+     它下面每一条规则都会把请求送进生成路径，一旦送进去就晚了。 */
+  if (FAB_CUE.test(t) && WRITE_REQ.test(t)) {
+    return { intent: INTENTS.GUARD, confidence: 0.95, by: "rule:guard:fabricate" };
+  }
+  if (FACT_FIELD.test(t)) {
+    return { intent: INTENTS.GUARD, confidence: 0.9, by: "rule:guard:fact" };
+  }
 
   const isCount = STATS_COUNT_PAT.some((p) => p.test(t));
   const isSummary = STATS_SUMMARY_PAT.some((p) => p.test(t));
@@ -156,9 +218,20 @@ export function ruleClassify(text) {
   if (PREP_PAT.some((p) => p.test(t))) {
     return { intent: INTENTS.PREP, confidence: 0.8, by: "rule:prep" };
   }
-  // 提到了领域关键词、又没有其他意图特征 → 就是在问 JD 内容。
-  // 这条规则专门用来省掉一次模型分类调用（这类问题占大多数）。
-  if (kws.length) {
+  /* 提到了领域关键词、又没有其他意图特征 → 就是在问 JD 内容。
+     这条规则专门用来省掉一次模型分类调用（这类问题占大多数）。
+
+     ⚠️ 但它是整个规则层里唯一一条**在替代语言理解**的规则：
+     "句子里出现任何领域关键词" 推不出 "用户在问 JD 内容"。
+     它的 confidence 写 0.65 是诚实的，可代码里从没有地方用这个 0.65
+     做过降级——于是一条低置信度的猜测走了高置信度的路。
+     上面那个 D3 安全洞就是被它吞掉的。
+
+     所以加一条闸门：**带写作请求的句子不许走这条捷径**。
+     这类句子（"帮我写一段…"）无论如何都不是"问 JD 内容"，
+     交给模型分类去判 REWRITE / PREP / 还是别的。
+     宁可为这一类多花一次分类调用。 */
+  if (kws.length && !WRITE_REQ.test(t)) {
     return { intent: INTENTS.ASK_JD, confidence: 0.65, by: "rule:kw", keywords: kws };
   }
   return null; // 规则拿不准 → 模型分类

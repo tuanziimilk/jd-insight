@@ -90,6 +90,9 @@
      两个都用中性底；要区分的话靠字重，不靠颜色。 */
   .tag.rule { background: var(--sunk); color: var(--ink2); font-weight: 600; }
   .tag.model { background: var(--sunk); color: var(--muted); }
+  /* 红线是唯一需要一眼看出"这一轮被拒了"的状态，所以给它语义色。
+     语义色在这个项目里只用于真实状态，不做装饰——见 theme.css 头部。 */
+  .tag.guard { background: var(--stop-soft); color: var(--stop); font-weight: 600; }
 
   .bubble table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 12.5px; }
   .bubble th, .bubble td { border: 1px solid var(--rule); padding: 5px 8px; text-align: left; }
