@@ -21,8 +21,17 @@
 
 ---
 
-> 想看**工程决策与取舍**（为什么这么拆、每个决定的代价、什么条件下该反悔）：
-> **[ARCHITECTURE.md](ARCHITECTURE.md)**。这份 README 讲怎么用。
+> 四份文档各管一件事，这份 README 讲**怎么用**：
+>
+> | 文档 | 回答什么 |
+> |---|---|
+> | **[ARCHITECTURE.md](ARCHITECTURE.md)** | 为什么这么拆、每个决定的代价、什么条件下该反悔 |
+> | **[MAINTENANCE.md](MAINTENANCE.md)** | **哪些数字和词表是推测的、错了会怎样、你怎么改** |
+> | **[CHANGELOG.md](CHANGELOG.md)** | 每个版本改了什么、**需要你复核什么**、哪些部分没验证过 |
+> | [docs/ROADMAP.md](docs/ROADMAP.md) | 后面打算做什么、以及什么时候才值得做 |
+>
+> ⚠️ 如果你是**刚拿到这个项目**的人，先看 `MAINTENANCE.md` 的第一节
+> ——那里列着"现在就该你动手的"两件事，不做的话缺口分析会一直拒绝输出。
 
 ## 它解决什么问题
 

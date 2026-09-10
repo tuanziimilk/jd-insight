@@ -65,6 +65,47 @@ GROUPS = CFG.GROUPS
 MY_PROFILE = getattr(CFG, "MY_PROFILE", {})
 JOB_TYPES = getattr(CFG, "JOB_TYPES", {})
 
+
+# ---------------------------------------------------------------- 自评闸门
+#
+# ⚠️ 这一段修的是一个**已经产生错误输出**的问题，不是防御性编程。
+#
+# 原来的 USING_EXAMPLE 只判断「config.py 存不存在」。而实测（2026-09-10）：
+# config.py 存在，但和 config.example.py **逐字节完全相同** —— 也就是说
+# MY_PROFILE 里躺的一直是模板占位：
+#     "产品基本功": "🟢 示例：主导过某后台重构，PRD + 高保真原型 + 字段级规格"
+# 于是 USING_EXAMPLE 为 False、警告一次都没打过，而报告
+# （reports/jd_report.md）**把这些「示例」当成真实能力印出来了**，
+# 并据此排出「你最该补 RAG / 对话式产品」。这份报告还回流进了知识库。
+#
+# 一个 AI 写的模板占位被当成事实输出 —— 它不报错，它给你一个
+# 看起来很专业的错结论。这比报错危险得多。
+#
+# 所以判断依据从「文件存不存在」改成「内容填了没有」。
+PLACEHOLDER_MARK = "示例"
+
+
+def placeholder_groups(profile):
+    """返回自评值还是模板占位的能力组名。
+
+    只认「示例」这个标记词 —— 它是 config.example.py 里每一条自评的固定前缀。
+    刻意不做更聪明的启发式（比如"长度太短""没有具体项目名"）：
+    那种判断会误伤真实填写的简短自评，而误伤的表现是"明明填了却被拒"，
+    比漏判更让人不想用。
+    """
+    return [g for g, v in (profile or {}).items() if PLACEHOLDER_MARK in str(v)]
+
+
+PLACEHOLDER_GROUPS = placeholder_groups(MY_PROFILE)
+# 一条都没填真的 → 自评整体不可用，「缺口排行」这一章必须拒绝输出
+PROFILE_UNUSABLE = bool(MY_PROFILE) and len(PLACEHOLDER_GROUPS) == len(MY_PROFILE)
+
+# 样本量下限。报告头部本来就写着「样本少于 10 条时结论不稳，别急着改简历口径」
+# —— 但那只是一句提示，下面照样输出了带 🔥🔥 优先级的排行。
+# 实测两份历史报告的样本量是 4 条和 3 条。
+# ⚠️ 一句写在文档里、代码却不执行的规则，等于没有规则。现在让代码执行它。
+MIN_SAMPLE = 10
+
 SPLIT = re.compile(r"^={5,}\s*$", re.M)
 
 # BOSS 用 Unicode 私有区字符 + 自定义字体渲染薪资数字，复制出来是乱码。
@@ -246,9 +287,15 @@ def analyze():
     A("")
     A(f"> 样本量：**{n} 条**｜由 `99-脚本/analyze_jd.py` 自动生成，原始数据在 `05-资源库/JD原始数据/jd_raw.txt`。")
     A("> 词频用**覆盖率**（出现在多少条 JD 里），不用总次数——「10 条里 8 条都要」比「一共出现 23 次」更能指导简历。")
-    A("> ⚠️ 样本少于 10 条时结论不稳，别急着改简历口径。")
+    if n < MIN_SAMPLE:
+        A(f"> ⚠️ **样本只有 {n} 条**（低于 {MIN_SAMPLE} 条）。缺口那一章已降级为只给计数、不排优先级。")
     if USING_EXAMPLE:
-        A("> ⚠️ 当前用的是 `config.example.py` 的示例画像，「缺口排行」不代表你的真实情况——复制成 `config.py` 再填。")
+        A("> ⚠️ 没找到 `analyzer/config.py`，当前用的是 `config.example.py`。")
+    if PROFILE_UNUSABLE:
+        A("> ⚠️ **`MY_PROFILE` 还是模板占位**（每条都带「示例」），缺口那一章不输出。修法见该章。")
+    elif PLACEHOLDER_GROUPS:
+        A("> ⚠️ 这几个能力组的自评还是模板占位，已按「未填」处理："
+          + "、".join(PLACEHOLDER_GROUPS))
     A("")
     A("---")
     A("")
@@ -262,22 +309,58 @@ def analyze():
         pct = f"{c / n * 100:.0f}%"
         bar = "█" * round(c / n * 10)
         kws = "、".join(sorted(group_examples[g])[:6])
-        A(f"| **{g}** | {c}/{n} {bar} | {pct} | {kws} | {MY_PROFILE.get(g, '—')} |")
+        # 占位的自评不许当事实印出来，显示成明确的「未填」
+        mine = MY_PROFILE.get(g, "—")
+        if PLACEHOLDER_MARK in str(mine):
+            mine = "—（未填自评）"
+        A(f"| **{g}** | {c}/{n} {bar} | {pct} | {kws} | {mine} |")
     A("")
 
     # ---- 缺口排行
     A("## 二、缺口排行（覆盖率高 × 我还不行 = 最该补）")
     A("")
-    gaps = [(g, c) for g, c in group_hits.most_common()
-            if str(MY_PROFILE.get(g, "")).startswith(("🔴", "🟡"))]
-    if gaps:
-        A("| 优先级 | 能力组 | 覆盖率 | 我的现状 |")
-        A("|---|---|---|---|")
-        for i, (g, c) in enumerate(gaps, 1):
-            flag = "🔥🔥" if c / n >= 0.5 else ("🔥" if c / n >= 0.3 else "·")
-            A(f"| {flag} {i} | {g} | {c}/{n}（{c / n * 100:.0f}%） | {MY_PROFILE.get(g)} |")
+    # ⚠️ 两道闸门。任一不过就**不输出排行**，只说清为什么 ——
+    #    这一章的每一行都在说「你该先补这个」，而那是会让人真去改简历、
+    #    真去分配几周学习时间的结论。依据不成立时给一张表，
+    #    比给一句"算不了"糟得多。
+    if PROFILE_UNUSABLE:
+        A("**这一章没有输出。** `analyzer/config.py` 里的 `MY_PROFILE` 还是")
+        A("`config.example.py` 的模板占位（每条都带「示例」二字），不是你的真实自评。")
+        A("")
+        A("缺口 = 覆盖率高 × **我还不行** —— 后半截没有真实数据，整章结论就是假的。")
+        A("历史上这一章正是在这个状态下输出过带 🔥🔥 优先级的排行，")
+        A("并回流进了知识库。所以现在宁可空着。")
+        A("")
+        A("怎么修：编辑 `analyzer/config.py` 的 `MY_PROFILE`，")
+        A("按 `GROUPS` 里的组名逐个填真实情况（🟢 有真实项目支撑 / 🟡 概念懂但缺实操 / 🔴 空白）。")
+        A("这个文件被 `.gitignore` 排除，不会进仓库。")
+    elif n < MIN_SAMPLE:
+        A(f"**这一章降级输出。** 样本只有 {n} 条（低于 {MIN_SAMPLE} 条）。")
+        A("")
+        A("覆盖率在小样本下抖得很厉害：4 条里有 2 条提到某个能力就是 50%，")
+        A("而那说的是这 4 条的巧合，不是市场的要求。所以这里**只给原始计数、不排优先级**")
+        A("—— 🔥 那个符号会让人以为它是结论。")
+        A("")
+        gaps = [(g, c) for g, c in group_hits.most_common()
+                if str(MY_PROFILE.get(g, "")).startswith(("🔴", "🟡"))]
+        if gaps:
+            A("| 能力组 | 命中 | 我的现状 |")
+            A("|---|---|---|")
+            for g, c in gaps:
+                A(f"| {g} | {c}/{n} | {MY_PROFILE.get(g)} |")
+        else:
+            A("（当前自评里没有标 🔴 / 🟡 的能力组。）")
     else:
-        A("（暂无缺口，或样本太少。）")
+        gaps = [(g, c) for g, c in group_hits.most_common()
+                if str(MY_PROFILE.get(g, "")).startswith(("🔴", "🟡"))]
+        if gaps:
+            A("| 优先级 | 能力组 | 覆盖率 | 我的现状 |")
+            A("|---|---|---|---|")
+            for i, (g, c) in enumerate(gaps, 1):
+                flag = "🔥🔥" if c / n >= 0.5 else ("🔥" if c / n >= 0.3 else "·")
+                A(f"| {flag} {i} | {g} | {c}/{n}（{c / n * 100:.0f}%） | {MY_PROFILE.get(g)} |")
+        else:
+            A("（自评里没有标 🔴 / 🟡 的能力组 —— 要么真的没缺口，要么自评填得太乐观。）")
     A("")
 
     # ---- 薪资带
