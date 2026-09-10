@@ -268,6 +268,9 @@
     <p class="hint" id="hint">回答只依据你采集的 JD；JD 里没有的会明确说没有。</p>
   </footer>
 
+  <!-- 守卫必须排在前面且是普通脚本：这样 sidepanel.js（module）的加载/求值
+       错误也能被 window.onerror 捕获，界面上会看到原因，而不是"按钮没反应" -->
+  <script src="guard.js"></script>
   <script type="module" src="sidepanel.js"></script>
 </body>
 </html>

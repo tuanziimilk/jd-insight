@@ -273,6 +273,9 @@
     <span id="status"></span>
   </div>
 </div>
+<!-- 守卫排在前面且是普通脚本，理由同 popup.html：module 的加载错误
+     也能被它捕获，界面上会看到原因而不是一个"填不进东西"的表单 -->
+<script src="guard.js"></script>
 <script type="module" src="options.js"></script>
 </body>
 </html>

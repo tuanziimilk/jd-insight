@@ -488,8 +488,21 @@ $("sync").addEventListener("click", async () => {
   setTimeout(() => load(), 2500);
 });
 
-// ③ 说明入口。操作说明和导出流程都搬到设置页了——popup 每天开几十次，
-// 不该常驻两段只在头几次有用的文字。这里只留一个入口。
+/* ③ 两个导航入口。
+ *
+ * ⚠️ 「设置」是补上的：原来 popup 通往设置页的唯一路径是「使用说明」，
+ * 而那个词读起来是帮助文档，不是设置。结果想换模型/配同步的人在 popup 里
+ * 找不到入口，得先打开情报台侧边栏、再点右上角齿轮——
+ * **而 popup 是每天开几十次的那个界面，情报台不是。**
+ * 主要设置项（模型、Key、同步）本来就该从最常开的界面一步进得去。
+ *
+ * 两个入口都留：它们去的是同一页的不同小节，用途不重叠。
+ */
+$("openSettings").addEventListener("click", (e) => {
+  e.preventDefault();
+  openOptions("");
+});
+
 $("help").addEventListener("click", (e) => {
   e.preventDefault();
   openOptions("#help");
