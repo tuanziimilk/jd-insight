@@ -39,7 +39,8 @@ function renderFunnelSVG(rows) {
     const y = i * (rowH + gap);
     const w = maxCount ? (r.count / maxCount) * barMaxW : 0;
     const color =
-      r.id === "已挂" || r.id === "已拒" || r.id === "不考虑"
+      // 同 pipeline.js 的 TERMINAL：「不考虑」是意向不是状态，比不出来，已删
+      r.id === "已挂" || r.id === "已拒"
         ? "var(--stop)"
         : r.optional
           ? "var(--muted)"

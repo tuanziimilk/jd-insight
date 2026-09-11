@@ -168,6 +168,35 @@
   .sources a:hover { text-decoration-thickness: 2px; }
   .sources .s { color: var(--muted); font-family: var(--mono); }
 
+  /* 引用校验结果。
+     ⚠️ 默认态**不用语义色**，只用发丝边 + 沉底 —— 它出现的频率会比较高
+     （软提示必然有误报），一上来就是红的会让人学会无视它。
+     只有硬错（编号越界 / 整段没出处）才升级成 --stop 的左边框：
+     那两类没有解释空间，是模型确实编了一个不存在的编号。 */
+  .citecheck {
+    margin-top: 7px;
+    padding: 7px 9px;
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--rule);
+    border-radius: var(--r-sm);
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--muted);
+  }
+  .citecheck.bad { border-left-color: var(--stop); }
+  .citecheck b { display: block; color: var(--ink2); font-size: 12px; margin-bottom: 3px; }
+  .citecheck b + b { margin-top: 7px; }
+  .citecheck .ci { margin-top: 2px; }
+  /* 被质疑的原句用等宽 + 缩进，和说明文字分开，不然一段全是中文糊成一片 */
+  .citecheck .cq {
+    margin: 2px 0 4px;
+    padding-left: 7px;
+    border-left: 1px solid var(--rule);
+    font: 11.5px/1.5 var(--mono);
+    color: var(--ink2);
+  }
+
   .usage {
     margin-top: 6px;
     font-family: var(--sans);

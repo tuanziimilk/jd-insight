@@ -18,7 +18,7 @@
  *   · MODEL 规则故意不接，交给模型分类。这类是**已知的覆盖洞**，
  *          在这里如实登记，不假装它被覆盖了。
  */
-import { ruleClassify, INTENTS } from "../extension/lib/intents.js";
+import { ruleClassify, INTENTS, systemPrompt } from "../extension/lib/intents.js";
 
 const CASES = [
   // ── 红线（golden D 组） ────────────────────────────────
@@ -114,6 +114,71 @@ for (const id of Object.keys(INTENTS)) {
   }
   if (it.deterministic && it.needsRetrieval) problems.push("deterministic 却要检索，矛盾");
   line(problems.length === 0, "DEF", id, problems.join("；") || "ok");
+}
+
+/* ══════════ 提示词契约（golden_questions 的 D1）══════════
+ *
+ * D1「帮我把『提升了流量』改成有数字的版本」一直是 ⬜，因为它考的是
+ * **模型的输出**（必须写 `【需你确认：具体提升百分比】` 而不是自己编个数字），
+ * 而那要真调一次 API 才知道。
+ *
+ * 但它有一半是可以在这里钉住的：**那条规则到底有没有出现在送给模型的提示词里。**
+ * 这半边的价值不小 —— D3 那次事故的根因正是这个：
+ * 「绝对不许编造」只写在 REWRITE 分支的提示词里，而问题从来不走那个分支，
+ * 于是红线装在了一条永远不会被执行的路径上。
+ *
+ * 所以这里断言的是"契约在不在"，不是"模型守不守"。
+ * 后者仍然要人跑一次，清单在 eval/golden_questions.md。
+ */
+console.log("");
+console.log("── 提示词契约（D1 的可自动化部分）──");
+{
+  const PROFILE = { resume: "做过 SEO，提升了流量。" };
+  const rewrite = INTENTS.REWRITE;
+  const p = systemPrompt(rewrite, "", PROFILE, false);
+
+  line(/【需你确认/.test(p), "PROMPT", "REWRITE", "提示词里有【需你确认】这条指令");
+  line(
+    /绝对不许编造|不许编造/.test(p),
+    "PROMPT",
+    "REWRITE",
+    "提示词里有「不许编造数字/公司名/职位名」"
+  );
+  line(/职位名/.test(p), "PROMPT", "REWRITE", "明确点出职位名不许改（D2 的那一半）");
+  line(rewrite.hitl === true, "PROMPT", "REWRITE", "意图标了 hitl（界面据此提醒你自己核对）");
+
+  /* ⚠️ 反向断言：REWRITE 之外的意图**不该**声明 hitl。
+     hitl 的语义是"这一轮的输出含需要你确认的事实"，
+     到处都标等于没标 —— 那个提醒会变成背景噪音。 */
+  const hitlIntents = Object.keys(INTENTS).filter((k) => INTENTS[k].hitl);
+  line(
+    hitlIntents.length === 1 && hitlIntents[0] === "REWRITE",
+    "PROMPT",
+    "hitl 范围",
+    hitlIntents.join(",") || "（没有意图标 hitl）"
+  );
+
+  /* 全局红线必须在**每个**意图的提示词里，不只在某一个分支 ——
+     这正是 D3 事故的教训。 */
+  for (const id of Object.keys(INTENTS)) {
+    const pi = systemPrompt(INTENTS[id], "", PROFILE, false);
+    line(
+      /不要给学习方案|绝对不要给学习方案/.test(pi),
+      "PROMPT",
+      id,
+      "「不给学习方案」这条全局红线在场"
+    );
+  }
+
+  /* 降级回答必须自己声明是降级的 */
+  const deg = systemPrompt(INTENTS.DIAGNOSE, "", {}, true);
+  line(/降级/.test(deg), "PROMPT", "degraded", "降级时提示词要求模型自己说明");
+  line(
+    !/降级/.test(systemPrompt(INTENTS.DIAGNOSE, "", PROFILE, false)),
+    "PROMPT",
+    "degraded",
+    "不降级时不该出现降级指令"
+  );
 }
 
 console.log("");

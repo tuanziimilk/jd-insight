@@ -21,8 +21,19 @@ export const STAGES = [
   { id: "offer", label: "拿到 Offer", short: "offer" },
 ];
 
-/** 终止态：不算流失，单独统计 */
-export const TERMINAL = ["已挂", "已拒", "不考虑"];
+/** 终止态：不算流失，单独统计
+ *
+ * ⚠️ 2026-09-11 删掉了第三项 `"不考虑"`。它是**从来不可能命中的死项**：
+ * 「不考虑」不是投递状态，是**意向**（popup 里存成 `"❌"`，
+ * `INTENT_LABEL` 把它显示成「不考虑」）。而 TERMINAL 是拿来和 `r.status` 比的，
+ * status 的取值只有 STATUS_CYCLE 那八个，永远不等于「不考虑」。
+ *
+ * 删它的理由不是它有 bug（它没造成任何错误行为），
+ * 是它**在说一件不成立的事** —— 让人以为模型里有这么一个终止态。
+ * 而 funnel.ts 那边（TS 移植版）本来就没有它，两端因此对不上。
+ * 这个分叉是 2026-09-11 新加的 check-shared 第三节第一次跑就抓出来的。
+ */
+export const TERMINAL = ["已挂", "已拒"];
 
 export const STATUS_CYCLE = ["", "想投", "已投", "进面", "复面", "offer", "已挂", "已拒"];
 

@@ -8,6 +8,7 @@
  * 另外：统计类问题走确定性计算，不进模型（省钱、可复现、不会算错）。
  */
 import { retrieve, buildContext, stats, coverage } from "./lib/retrieve.js";
+import { checkCitations } from "./lib/cite.js";
 import { aggregateGaps, renderGaps } from "./lib/gap.js";
 import { renderFunnelTab } from "./lib/funnelUI.js";
 import {
@@ -106,6 +107,37 @@ function addSources(bubble, picked) {
       (r.company ? " · " + esc(r.company.slice(0, 14)) : "") +
       ' <span class="s">(相关度 ' + (r._score || 0).toFixed(1) + ")</span>"
     ).join("<br>");
+  bubble.parentElement.appendChild(w);
+  scroll();
+}
+
+/** 引用校验的结果。硬错和软提示分开画——它们要求的动作不一样。 */
+function addCiteCheck(bubble, res) {
+  if (!res || (!res.hard.length && !res.soft.length)) return;
+  const w = document.createElement("div");
+  w.className = "citecheck" + (res.hard.length ? " bad" : "");
+
+  const bits = [];
+  if (res.hard.length) {
+    bits.push("<b>引用有问题（" + res.hard.length + " 处）</b>");
+    for (const h of res.hard) {
+      bits.push('<div class="ci">' + esc(h.detail) + "</div>");
+      if (h.text) bits.push('<div class="cq">' + esc(h.text.slice(0, 90)) + "</div>");
+    }
+  }
+  if (res.soft.length) {
+    /* ⚠️ 措辞是「需要你核一下」不是「错了」。这一类必然有误报：
+       综述句、同义词、一句引多条都会命中。见 cite.js 的 CAVEAT。 */
+    bits.push("<b>这 " + res.soft.length + " 句建议自己核一下出处</b>");
+    for (const sft of res.soft.slice(0, 4)) {
+      bits.push('<div class="ci">' + esc(sft.detail) + "</div>");
+      bits.push('<div class="cq">' + esc(sft.text.slice(0, 90)) + "</div>");
+    }
+    if (res.soft.length > 4) {
+      bits.push('<div class="ci">…还有 ' + (res.soft.length - 4) + " 句</div>");
+    }
+  }
+  w.innerHTML = bits.join("");
   bubble.parentElement.appendChild(w);
   scroll();
 }
@@ -467,6 +499,9 @@ async function ask(question, opts = {}) {
     b.classList.remove("dots");
     b.innerHTML = md(acc);
     addSources(b, picked);
+    /* 引用校验（ROADMAP v2.1 第 2 项）。放在来源区**之后**，
+       因为它要你做的动作就是"去点上面那几条核一下"。 */
+    addCiteCheck(b, checkCitations(acc, picked, { needsRetrieval: intent.needsRetrieval }));
     if (res) addUsage(b, res);
     HISTORY.push({ role: "user", content: question });
     HISTORY.push({ role: "assistant", content: acc.slice(0, 2000) });
